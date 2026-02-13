@@ -1,0 +1,109 @@
+Metadata-Version: 2.4
+Name: abstractmusic
+Version: 0.1.0
+Summary: Model-agnostic local music/audio generation abstractions for the Abstract ecosystem
+Author-email: Laurent-Philippe Albou <contact@abstractcore.ai>
+License: MIT
+Project-URL: Homepage, https://github.com/lpalbou/AbstractFramework
+Project-URL: Repository, https://github.com/lpalbou/AbstractFramework
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Multimedia
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: diffusers>=0.36.0
+Requires-Dist: torch<3.0.0,>=2.0
+Requires-Dist: transformers<6.0.0,>=4.0
+Requires-Dist: accelerate>=0.0
+Requires-Dist: safetensors>=0.0
+Requires-Dist: huggingface_hub>=0.20.0
+Requires-Dist: einops>=0.8.1
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+
+# AbstractMusic
+
+`abstractmusic` is a local-first **text-to-music / text-to-audio** library designed to plug into **AbstractCore** as an optional capability plugin.
+
+## Quickstart (local generation)
+
+```python
+from abstractmusic import MusicManager
+from abstractmusic.backends import AceStepV15Backend, AceStepV15BackendConfig
+
+backend = AceStepV15Backend(config=AceStepV15BackendConfig())
+
+mm = MusicManager(backend=backend)
+wav_bytes = mm.t2m("uplifting synthwave with punchy drums", duration_s=10.0)
+open("out.wav", "wb").write(wav_bytes)
+```
+
+## Quickstart (AbstractCore integration)
+
+```python
+from abstractcore import create_llm
+
+llm = create_llm(
+    # Any provider/model works here. The LLM does *not* synthesize audio.
+    "ollama",
+    model="qwen3:4b-instruct",
+    music_backend="acestep",
+    music_model_id="ACE-Step/Ace-Step1.5",
+)
+
+wav_bytes = llm.music.t2m("ambient lo-fi study music", format="wav", duration_s=10.0)
+open("out.wav", "wb").write(wav_bytes)
+```
+
+## Notes
+
+- Audio output baseline is **WAV** (no external codecs required).
+- Model weights are downloaded on first use via the Hugging Face cache (same workflow as Diffusers-based vision).
+- ACE-Step v1.5 loads a **pinned** Hugging Face revision by default for deterministic behavior. Override with `--revision` / `ABSTRACTMUSIC_REVISION` if needed.
+- The ACE-Step backend vendors the checkpoint’s custom Transformers model code into `abstractmusic` so we do **not** use `trust_remote_code`.
+
+## CLI / REPL
+
+After installation, `abstractmusic` provides a small CLI:
+
+```bash
+# One-shot generation
+abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
+
+# Interactive REPL
+abstractmusic --backend acestep repl
+```
+
+## Licensing note
+
+- The default backend example uses **ACE-Step v1.5** (`ACE-Step/Ace-Step1.5`), tagged `license:mit` on Hugging Face. The vendored custom model code files carry **Apache-2.0** headers (both permissive).
+- If you switch to `--backend diffusers`, **model licenses vary** by checkpoint. Choose a model compatible with your intended usage.
+
+### macOS / Apple Silicon note (MPS)
+
+Some Diffusers audio pipelines can fail on the `mps` device due to PyTorch backend limitations (typically during vocoder inference).
+`abstractmusic` will **retry on CPU** with a clear warning (`#FALLBACK`) when it detects the known MPS channel-limit error.
+To force CPU directly, use `--device cpu`.
+
+For ACE‑Step v1.5 on MPS, `abstractmusic` defaults to **fp16** (bf16 disabled) to keep memory usage reasonable on typical unified‑memory Macs.
+If you run into numerical issues, you can override with `--dtype float32` (at the cost of significantly higher memory use).
+By default, ACE‑Step caps MPS memory to ~16 GiB by setting `PYTORCH_MPS_HIGH_WATERMARK_RATIO` (configurable via `--mps-max-memory-gb` or `--mps-high-watermark-ratio`).
+In addition, ACE-Step text-encoder conditioning is executed on **CPU float32** on MPS builds as a compatibility fallback (`#FALLBACK`) to avoid known mixed-dtype MPSGraph kernel aborts; conditioning tensors are cast back to the model dtype/device before diffusion.
+The ACE-Step backend defaults to `infer_method=ode` (turbo `fix_nfe=8`, upstream default) with `shift=3.0` (upstream schedule). For text2music conditioning, source latents are initialized from seeded random noise (instead of silence) to better match expected model behavior, and chunk masks default to zeros to avoid injecting constant features.
+By default, the prompt is passed as-is (no SFT wrapper); set `use_sft_prompt=True` in config if you need the previous instruction/metas format.
+If a run returns non-finite latents, `abstractmusic` retries once with the alternate infer method using an incremented seed (`#FALLBACK`) instead of writing a silent/invalid WAV.
+
+For instrumental prompts (no explicit lyrics), ACE-Step uses a proper **null lyric condition** (mask=0) rather than synthetic placeholder lyric text.
+Decoded waveforms are DC-centered before normalization to avoid one-sided/noisy artifacts from amplifying tiny decoder bias.
+
+Upstream references:
+- PyTorch MPS env var `PYTORCH_ENABLE_MPS_FALLBACK=1` (fallback to CPU when an op is unsupported): `https://docs.pytorch.org/docs/stable/mps_environment_variables.html`
+- Example upstream issue tracking the specific MPS channel-limit error: `https://github.com/pytorch/pytorch/issues/144445`

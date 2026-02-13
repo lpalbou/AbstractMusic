@@ -1,0 +1,5 @@
+[abstractcore.capabilities_plugins]
+abstractmusic = abstractmusic.integrations.abstractcore_plugin:register
+
+[console_scripts]
+abstractmusic = abstractmusic.cli:main
