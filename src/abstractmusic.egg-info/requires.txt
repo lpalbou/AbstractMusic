@@ -17,3 +17,6 @@ einops>=0.8.1
 pytest>=7.0.0
 
 [gpu]
+
+[test]
+pytest>=7.0.0

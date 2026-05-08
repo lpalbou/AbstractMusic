@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 src/abstractmusic/__init__.py
 src/abstractmusic/__main__.py
+src/abstractmusic/_version.py
 src/abstractmusic/artifacts.py
 src/abstractmusic/cli.py
 src/abstractmusic/errors.py

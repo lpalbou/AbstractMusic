@@ -12,11 +12,10 @@ import os
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
+from ._version import __version__
 from .music_manager import MusicManager
 
 __all__ = [
     "__version__",
     "MusicManager",
 ]
-
-__version__ = "0.1.1"

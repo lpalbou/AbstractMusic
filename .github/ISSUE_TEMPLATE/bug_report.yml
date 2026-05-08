@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible AbstractMusic bug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Include enough detail to reproduce the prompt, backend, and runtime environment.
+  - type: input
+    id: version
+    attributes:
+      label: AbstractMusic version
+      description: Output of `python -c "import abstractmusic; print(abstractmusic.__version__)"`
+      placeholder: "0.1.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine or area
+      options:
+        - acestep
+        - diffusers
+        - cli
+        - abstractcore integration
+        - packaging/install
+        - audio output
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the incorrect behavior, including exact errors or audio artifact notes.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include commands, Python snippets, prompts, backend settings, and whether models were already cached.
+      placeholder: |
+        1. `abstractmusic --backend acestep t2m "ambient lo-fi" --out out.wav`
+        2. Inspect `out.wav`
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, hardware/accelerator, installed extras, and relevant package versions.
+      placeholder: |
+        macOS 15, Python 3.12, Apple Silicon MPS
+        pip install "abstractmusic[apple]"
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Logs or audio artifacts
+      description: Attach logs, sample WAVs, or describe where artifacts can be found.
+    validations:
+      required: false

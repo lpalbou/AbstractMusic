@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lpalbou/AbstractFramework"
-Repository = "https://github.com/lpalbou/AbstractFramework"
+Homepage = "https://github.com/lpalbou/AbstractMusic"
+Repository = "https://github.com/lpalbou/AbstractMusic"
 
 [project.scripts]
 abstractmusic = "abstractmusic.cli:main"
@@ -57,6 +57,9 @@ all-gpu = []
 dev = [
   "pytest>=7.0.0",
 ]
+test = [
+  "pytest>=7.0.0",
+]
 
 [tool.setuptools]
 packages = [
@@ -71,4 +74,4 @@ packages = [
 "" = "src"
 
 [tool.setuptools.dynamic]
-version = {attr = "abstractmusic.__version__"}
+version = {attr = "abstractmusic._version.__version__"}

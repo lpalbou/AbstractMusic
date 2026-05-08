@@ -1,11 +1,11 @@
 Metadata-Version: 2.4
 Name: abstractmusic
-Version: 0.1.1
+Version: 0.1.2
 Summary: Model-agnostic local music/audio generation abstractions for the Abstract ecosystem
 Author-email: Laurent-Philippe Albou <contact@abstractcore.ai>
 License: MIT
-Project-URL: Homepage, https://github.com/lpalbou/AbstractFramework
-Project-URL: Repository, https://github.com/lpalbou/AbstractFramework
+Project-URL: Homepage, https://github.com/lpalbou/AbstractMusic
+Project-URL: Repository, https://github.com/lpalbou/AbstractMusic
 Classifier: Development Status :: 3 - Alpha
 Classifier: Intended Audience :: Developers
 Classifier: License :: OSI Approved :: MIT License
@@ -32,6 +32,8 @@ Provides-Extra: gpu
 Provides-Extra: all-gpu
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
+Provides-Extra: test
+Requires-Dist: pytest>=7.0.0; extra == "test"
 
 # AbstractMusic
 
