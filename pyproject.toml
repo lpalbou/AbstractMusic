@@ -47,6 +47,13 @@ abstractmusic = "abstractmusic.cli:main"
 abstractmusic = "abstractmusic.integrations.abstractcore_plugin:register"
 
 [project.optional-dependencies]
+# Base already includes the native local music stack. These extras make the
+# framework-wide Apple vocabulary installable and composable from higher-level
+# packages.
+apple = []
+all-apple = []
+gpu = []
+all-gpu = []
 dev = [
   "pytest>=7.0.0",
 ]

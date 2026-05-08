@@ -2,6 +2,24 @@
 
 `abstractmusic` is a local-first **text-to-music / text-to-audio** library designed to plug into **AbstractCore** as an optional capability plugin.
 
+## Install
+
+```bash
+pip install abstractmusic
+```
+
+The base package is currently local-first and includes the ACE-Step runtime stack. The shared
+framework profile aliases are available for composition:
+
+```bash
+pip install "abstractmusic[apple]"
+pip install "abstractmusic[gpu]"
+pip install "abstractmusic[all-apple]"
+pip install "abstractmusic[all-gpu]"
+```
+
+These aliases do not add dependencies yet because the local stack is already in the base package.
+
 ## Quickstart (local generation)
 
 ```python

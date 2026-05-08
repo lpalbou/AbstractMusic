@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: abstractmusic
-Version: 0.1.0
+Version: 0.1.1
 Summary: Model-agnostic local music/audio generation abstractions for the Abstract ecosystem
 Author-email: Laurent-Philippe Albou <contact@abstractcore.ai>
 License: MIT
@@ -26,12 +26,34 @@ Requires-Dist: accelerate>=0.0
 Requires-Dist: safetensors>=0.0
 Requires-Dist: huggingface_hub>=0.20.0
 Requires-Dist: einops>=0.8.1
+Provides-Extra: apple
+Provides-Extra: all-apple
+Provides-Extra: gpu
+Provides-Extra: all-gpu
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 
 # AbstractMusic
 
 `abstractmusic` is a local-first **text-to-music / text-to-audio** library designed to plug into **AbstractCore** as an optional capability plugin.
+
+## Install
+
+```bash
+pip install abstractmusic
+```
+
+The base package is currently local-first and includes the ACE-Step runtime stack. The shared
+framework profile aliases are available for composition:
+
+```bash
+pip install "abstractmusic[apple]"
+pip install "abstractmusic[gpu]"
+pip install "abstractmusic[all-apple]"
+pip install "abstractmusic[all-gpu]"
+```
+
+These aliases do not add dependencies yet because the local stack is already in the base package.
 
 ## Quickstart (local generation)
 
