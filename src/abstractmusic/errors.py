@@ -22,3 +22,6 @@ class BackendNotConfiguredError(AbstractMusicError):
 class CapabilityNotSupportedError(AbstractMusicError):
     """Raised when a backend does not support a requested operation/parameter."""
 
+
+class UnknownModelError(AbstractMusicError):
+    """Raised when a model id is not present in the capability registry."""

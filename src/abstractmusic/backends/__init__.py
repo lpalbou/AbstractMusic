@@ -5,18 +5,33 @@ AbstractMusic backend implementations.
 from __future__ import annotations
 
 from .base_backend import MusicBackend
-from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 
 __all__ = [
     "MusicBackend",
     "AceStepV15Backend",
     "AceStepV15BackendConfig",
+    "AceStepOfficialBackend",
+    "AceStepOfficialBackendConfig",
+    "AceStepDiffusersBackend",
+    "AceStepDiffusersBackendConfig",
     "DiffusersAudioBackend",
     "DiffusersAudioBackendConfig",
 ]
 
 
 def __getattr__(name: str):
+    if name in {"AceStepV15Backend", "AceStepV15BackendConfig"}:
+        from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
+
+        return AceStepV15Backend if name == "AceStepV15Backend" else AceStepV15BackendConfig
+    if name in {"AceStepOfficialBackend", "AceStepOfficialBackendConfig"}:
+        from .acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
+
+        return AceStepOfficialBackend if name == "AceStepOfficialBackend" else AceStepOfficialBackendConfig
+    if name in {"AceStepDiffusersBackend", "AceStepDiffusersBackendConfig"}:
+        from .acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+
+        return AceStepDiffusersBackend if name == "AceStepDiffusersBackend" else AceStepDiffusersBackendConfig
     if name in {"DiffusersAudioBackend", "DiffusersAudioBackendConfig"}:
         from .diffusers_audio import DiffusersAudioBackend, DiffusersAudioBackendConfig
 

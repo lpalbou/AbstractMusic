@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
 from ..errors import OptionalDependencyMissingError
-from ..types import AudioGenerationRequest, GeneratedAsset
+from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 
 def _lazy_import_torch():
@@ -74,9 +74,9 @@ def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
 
     if d == "auto":
         # Practical default:
-        # - float16 on CUDA (common diffusers default)
-        # - float32 elsewhere (cpu/mps/xpu) for broadest correctness
-        d = "float16" if dev in {"cuda"} else "float32"
+        # - float16 on CUDA/MPS accelerators
+        # - float32 on CPU for broadest correctness
+        d = "float16" if dev in {"cuda", "mps"} else "float32"
 
     if d in {"float16", "fp16"}:
         if dev == "cpu":
@@ -167,6 +167,18 @@ class DiffusersAudioBackend:
         mid = str(config.model_id or "").strip()
         if not mid:
             raise ValueError("model_id is required for DiffusersAudioBackend")
+
+    def get_capabilities(self) -> MusicBackendCapabilities:
+        return MusicBackendCapabilities(
+            supported_tasks=("text_to_music", "text_to_audio"),
+            output_formats=("wav",),
+            supports_lyrics=False,
+            supports_negative_prompt=None,
+            supports_guidance_scale=None,
+            model_id=str(self._config.model_id),
+            official_8bit_available=False,
+            preferred_precision="official pipeline dtype; prefer official 8-bit artifacts when available",
+        )
 
     def _load_pipe(self):
         if self._pipe is not None:
@@ -342,4 +354,3 @@ class DiffusersAudioBackend:
             meta["seed"] = int(seed)
 
         return GeneratedAsset(data=bytes(wav_bytes), mime_type="audio/wav", metadata=meta)
-

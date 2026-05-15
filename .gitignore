@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging/build outputs
+build/
+dist/
+*.egg-info/
+
+# Local environments
+.venv/
+venv/
+env/
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Generated media and smoke-test artifacts
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+artifacts/
+test-artifacts/
+smoke-artifacts/
+
+# Local model/cache directories
+models/
+checkpoints/
+ckpt/
+.cache/
+hf_cache/
+huggingface/
+

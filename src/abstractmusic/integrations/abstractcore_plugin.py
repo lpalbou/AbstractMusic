@@ -6,6 +6,7 @@ This registers a `music` capability backend discovered by AbstractCore via the
 
 Default backend:
 - Local ACE-Step v1.5 pipeline (in-process; no external server required).
+- Local ACE-Step Diffusers XL pipeline (alternative; in-process).
 - Local Diffusers audio pipeline (alternative; in-process).
 """
 
@@ -207,6 +208,52 @@ class _AbstractMusicDiffusersCapability(_AbstractMusicCapabilityBase):
         return super().t2m(full_prompt, lyrics=None, **kwargs)
 
 
+class _AbstractMusicAceStepDiffusersCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using ACE-Step Diffusers XL Turbo."""
+
+    backend_id = "abstractmusic:acestep-diffusers"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        model_id = _require_model_id(self._owner) or "ACE-Step/acestep-v15-xl-turbo-diffusers"
+        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
+        dtype = _owner_cfg(self._owner, "music_torch_dtype") or _env("ABSTRACTMUSIC_TORCH_DTYPE", "auto")
+
+        steps = _owner_cfg_any(self._owner, "music_num_inference_steps") or _env("ABSTRACTMUSIC_NUM_INFERENCE_STEPS")
+        duration_s = _owner_cfg_any(self._owner, "music_duration_s") or _env("ABSTRACTMUSIC_DURATION_S")
+
+        def _to_int(v: Any, default: int) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return int(default)
+
+        def _to_float(v: Any, default: float) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return float(default)
+
+        from ..backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+
+        cfg = AceStepDiffusersBackendConfig(
+            model_id=str(model_id),
+            device=str(device or "auto"),
+            torch_dtype=str(dtype or "auto"),
+            num_inference_steps=_to_int(steps, 8),
+            duration_s=_to_float(duration_s, 10.0),
+        )
+        self._backend = AceStepDiffusersBackend(config=cfg)
+        return self._backend
+
+
 class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
     """AbstractCore MusicCapability using ACE-Step v1.5 (local, in-process)."""
 
@@ -245,8 +292,55 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
         return self._backend
 
 
+class _AbstractMusicAceStepOfficialCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using the upstream ACE-Step runtime."""
+
+    backend_id = "abstractmusic:acestep-official"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        repo_id = _require_model_id(self._owner) or "ACE-Step/Ace-Step1.5"
+        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
+        source_dir = _owner_cfg(self._owner, "music_acestep_source_dir") or _env("ABSTRACTMUSIC_ACESTEP_SOURCE_DIR")
+        checkpoint_dir = _owner_cfg(self._owner, "music_acestep_checkpoint_dir") or _env("ABSTRACTMUSIC_ACESTEP_CHECKPOINT_DIR")
+        lm_model_path = _owner_cfg(self._owner, "music_lm_model_path") or _env(
+            "ABSTRACTMUSIC_ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-1.7B"
+        )
+        lm_backend = _owner_cfg(self._owner, "music_lm_backend") or _env("ABSTRACTMUSIC_ACESTEP_LM_BACKEND", "auto")
+
+        from ..backends.acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
+
+        cfg = AceStepOfficialBackendConfig(
+            repo_id=str(repo_id),
+            source_dir=str(source_dir).strip() if source_dir else None,
+            checkpoint_dir=str(checkpoint_dir).strip() if checkpoint_dir else None,
+            lm_model_path=str(lm_model_path or "acestep-5Hz-lm-1.7B"),
+            lm_backend=str(lm_backend or "auto"),
+            device=str(device or "auto"),
+        )
+        self._backend = AceStepOfficialBackend(config=cfg)
+        return self._backend
+
+
 def register(registry: Any) -> None:
     """Register AbstractMusic as an AbstractCore capability plugin."""
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicAceStepOfficialCapability.backend_id,
+        factory=lambda owner: _AbstractMusicAceStepOfficialCapability(owner),
+        priority=20,
+        description="AbstractMusic local generation via the official ACE-Step runtime and 5Hz LM.",
+        config_hint="Optional: set music_model_id to 'ACE-Step/Ace-Step1.5'. On Apple Silicon this "
+        "prefers the official MLX LM path when available. Set music_acestep_source_dir or "
+        "ABSTRACTMUSIC_ACESTEP_SOURCE_DIR if ACE-Step is not installed.",
+    )
 
     registry.register_music_backend(
         backend_id=_AbstractMusicAceStepV15Capability.backend_id,
@@ -255,6 +349,16 @@ def register(registry: Any) -> None:
         description="AbstractMusic local generation via ACE-Step v1.5 (in-process).",
         config_hint="Optional: set music_model_id to a HF repo id (default: 'ACE-Step/Ace-Step1.5'). "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
+    )
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicAceStepDiffusersCapability.backend_id,
+        factory=lambda owner: _AbstractMusicAceStepDiffusersCapability(owner),
+        priority=5,
+        description="AbstractMusic local generation via ACE-Step Diffusers XL Turbo (in-process).",
+        config_hint="Optional: set music_model_id to a HF repo id "
+        "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). "
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float16'/'bfloat16'.",
     )
 
     registry.register_music_backend(

@@ -47,9 +47,14 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 2
+    assert len(reg.registrations) == 4
     backend_ids = {r["backend_id"] for r in reg.registrations}
-    assert backend_ids == {"abstractmusic:acestep-v15", "abstractmusic:diffusers"}
+    assert backend_ids == {
+        "abstractmusic:acestep-official",
+        "abstractmusic:acestep-v15",
+        "abstractmusic:acestep-diffusers",
+        "abstractmusic:diffusers",
+    }
     assert all(callable(r["factory"]) for r in reg.registrations)
 
 
@@ -121,4 +126,3 @@ def test_capability_requires_model_id_when_not_injected():
     cap = factory(owner)
     with pytest.raises(AbstractMusicError):
         cap.t2m("hello", format="wav")
-

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,13 +7,13 @@ name = "abstractmusic"
 dynamic = ["version"]
 description = "Model-agnostic local music/audio generation abstractions for the Abstract ecosystem"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{name = "Laurent-Philippe Albou", email = "contact@abstractcore.ai"}]
 requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -23,18 +23,8 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Batteries-included by default (like AbstractVision): users should only need to download model weights.
-dependencies = [
-  "numpy>=1.24.0",
-  "diffusers>=0.36.0",
-  "torch>=2.0,<3.0.0",
-  "transformers>=4.0,<6.0.0",
-  "accelerate>=0.0",
-  "safetensors>=0.0",
-  # ACE-Step v1.5 (Transformers custom model code uses these)
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
-]
+# Keep base import-light. Local model runtimes live behind explicit extras.
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/lpalbou/AbstractMusic"
@@ -47,23 +37,138 @@ abstractmusic = "abstractmusic.cli:main"
 abstractmusic = "abstractmusic.integrations.abstractcore_plugin:register"
 
 [project.optional-dependencies]
-# Base already includes the native local music stack. These extras make the
-# framework-wide Apple vocabulary installable and composable from higher-level
-# packages.
-apple = []
-all-apple = []
-gpu = []
-all-gpu = []
+acestep = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.36.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+]
+acestep-official = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "torchaudio>=2.0,<3.0.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+  "loguru>=0.7.0",
+  "vector-quantize-pytorch>=1.22.0",
+  "x-transformers>=1.0.0",
+  "librosa>=0.10.0",
+  "soundfile>=0.12.0",
+]
+acestep-diffusers = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+]
+diffusers = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.36.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+]
+local = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+]
+apple = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+  "loguru>=0.7.0",
+  "vector-quantize-pytorch>=1.22.0",
+  "x-transformers>=1.0.0",
+  "librosa>=0.10.0",
+  "soundfile>=0.12.0",
+  "mlx>=0.20.0",
+  "mlx-lm>=0.20.0",
+]
+gpu = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+]
+all-apple = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+  "loguru>=0.7.0",
+  "vector-quantize-pytorch>=1.22.0",
+  "x-transformers>=1.0.0",
+  "librosa>=0.10.0",
+  "soundfile>=0.12.0",
+  "mlx>=0.20.0",
+  "mlx-lm>=0.20.0",
+]
+all-gpu = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
+]
+midi = []
+heartmula = []
+omni2sound = []
+yue = []
 dev = [
   "pytest>=7.0.0",
+  "build>=1.0.0",
+  "twine>=5.0.0",
 ]
 test = [
   "pytest>=7.0.0",
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "diffusers>=0.38.0",
+  "transformers>=4.0,<6.0.0",
+  "accelerate>=0.0",
+  "safetensors>=0.0",
+  "huggingface_hub>=0.20.0",
+  "einops>=0.8.1",
 ]
 
 [tool.setuptools]
 packages = [
   "abstractmusic",
+  "abstractmusic.assets",
   "abstractmusic.backends",
   "abstractmusic.integrations",
   "abstractmusic.vendor",
@@ -72,6 +177,9 @@ packages = [
 
 [tool.setuptools.package-dir]
 "" = "src"
+
+[tool.setuptools.package-data]
+abstractmusic = ["assets/*.json"]
 
 [tool.setuptools.dynamic]
 version = {attr = "abstractmusic._version.__version__"}

@@ -30,7 +30,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
 from ..errors import OptionalDependencyMissingError
-from ..types import AudioGenerationRequest, GeneratedAsset
+from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
@@ -740,6 +740,24 @@ class AceStepV15Backend:
         self._text_encoder: Any = None
         self._silence_latent: Any = None
 
+    def get_capabilities(self) -> MusicBackendCapabilities:
+        return MusicBackendCapabilities(
+            supported_tasks=("text_to_music",),
+            output_formats=("wav",),
+            supports_lyrics=True,
+            supports_negative_prompt=False,
+            supports_guidance_scale=False,
+            supports_reference_audio=False,
+            supports_video=False,
+            max_duration_s=600.0,
+            sample_rates_hz=(48000,),
+            model_id=str(self._config.repo_id),
+            license="MIT",
+            commercial_allowed=True,
+            official_8bit_available=False,
+            preferred_precision="bf16 on CUDA/XPU, fp16 on MPS, fp32 on CPU when no official 8-bit artifact is available",
+        )
+
     def _resolve_dtypes(self, torch_mod: Any, device: str) -> Tuple[Any, Any]:
         if str(self._config.torch_dtype).strip().lower() == "auto":
             dtype = _default_model_dtype(torch_mod, device)
@@ -1164,11 +1182,7 @@ class AceStepV15Backend:
         if not prompt:
             prompt = ""
 
-        lyrics = None
-        if isinstance(request.extra, dict):
-            v = request.extra.get("lyrics")
-            if isinstance(v, str) and v.strip():
-                lyrics = v.strip()
+        lyrics = request.lyrics.strip() if isinstance(request.lyrics, str) and request.lyrics.strip() else None
 
         duration_s = float(request.duration_s) if request.duration_s is not None else float(self._config.default_duration_s)
         if duration_s <= 0:
@@ -1210,7 +1224,7 @@ class AceStepV15Backend:
         # - if lyrics are provided, encode them
         # - otherwise use a null lyric condition (mask=0) instead of synthetic text
         if isinstance(lyrics, str) and lyrics.strip():
-            language = "unknown"
+            language = str(request.vocal_language or "unknown").strip() or "unknown"
             lyrics_input = _format_lyrics(lyrics.strip(), language)
             lyric_ids, lyric_mask = self._tokenize_no_truncation(lyrics_input)
             lyric_ids = lyric_ids.to(text_device)
@@ -1392,4 +1406,3 @@ class AceStepV15Backend:
         }
 
         return GeneratedAsset(data=bytes(wav_bytes), mime_type="audio/wav", metadata=meta)
-
