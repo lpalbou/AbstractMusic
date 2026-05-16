@@ -67,6 +67,13 @@ def _extra_int(extra: Dict[str, Any], key: str, default: int) -> int:
     return int(value)
 
 
+def _extra_optional_int(extra: Dict[str, Any], key: str, default: Optional[int] = None) -> Optional[int]:
+    value = extra.get(key, default)
+    if value is None or value == "":
+        return default
+    return int(value)
+
+
 def _extra_bool(extra: Dict[str, Any], key: str, default: bool) -> bool:
     value = extra.get(key, default)
     if isinstance(value, str):
@@ -301,7 +308,7 @@ class AceStepOfficialBackendConfig:
     device: str = "auto"
     default_duration_s: float = 10.0
     num_inference_steps: int = 8
-    guidance_scale: float = 7.0
+    guidance_scale: float = 1.0
     shift: float = 3.0
     infer_method: str = "ode"
     sampler_mode: str = "euler"
@@ -334,12 +341,13 @@ class AceStepOfficialBackend:
         self._init_status: Dict[str, str] = {}
 
     def get_capabilities(self) -> MusicBackendCapabilities:
+        is_turbo = "turbo" in str(self._config.dit_model or "").lower()
         return MusicBackendCapabilities(
             supported_tasks=("text_to_music",),
             output_formats=("wav",),
             supports_lyrics=True,
             supports_negative_prompt=True,
-            supports_guidance_scale=True,
+            supports_guidance_scale=not is_turbo,
             supports_reference_audio=False,
             max_duration_s=600.0,
             sample_rates_hz=(48000,),
@@ -513,9 +521,12 @@ class AceStepOfficialBackend:
         duration = float(request.duration_s or self._config.default_duration_s)
         steps = int(request.num_inference_steps or self._config.num_inference_steps)
         seed = int(request.seed) if request.seed is not None else -1
-        lyrics = request.lyrics if request.lyrics is not None else "[Instrumental]"
-        instrumental = str(lyrics).strip().lower() == "[instrumental]"
         extra = request.extra or {}
+        lyrics = "" if request.lyrics is None else str(request.lyrics)
+        instrumental = _extra_bool(extra, "instrumental", False) or str(lyrics).strip().lower() == "[instrumental]"
+        bpm = _extra_optional_int(extra, "bpm")
+        keyscale = _extra_str(extra, "keyscale", "")
+        timesignature = _extra_str(extra, "timesignature", "")
         guidance_scale = _extra_float(extra, "guidance_scale", request.guidance_scale if request.guidance_scale is not None else self._config.guidance_scale)
         shift = _extra_float(extra, "shift", self._config.shift)
         infer_method = _extra_str(extra, "infer_method", self._config.infer_method)
@@ -539,6 +550,9 @@ class AceStepOfficialBackend:
             lyrics=str(lyrics or ""),
             instrumental=instrumental,
             vocal_language=str(request.vocal_language or "unknown"),
+            bpm=bpm,
+            keyscale=keyscale,
+            timesignature=timesignature,
             duration=duration,
             inference_steps=steps,
             guidance_scale=guidance_scale,
@@ -592,6 +606,10 @@ class AceStepOfficialBackend:
             "device": self._device or self._config.device,
             "duration_s": duration,
             "num_inference_steps": steps,
+            "bpm": bpm,
+            "keyscale": keyscale,
+            "timesignature": timesignature,
+            "instrumental": instrumental,
             "guidance_scale": guidance_scale,
             "shift": shift,
             "infer_method": infer_method,

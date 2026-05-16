@@ -94,3 +94,10 @@ and provider recommendations reflect that distinction.
 
 Treat this as a guardrail, not as a music critic. The metric should catch obvious repetition
 failures and make the recommendation status honest.
+
+## Progress Notes
+
+2026-05-15: Online/upstream review found that ACE-Step turbo explicitly does not use CFG and
+upstream clamps turbo `guidance_scale` to `1.0` to avoid noisy/NaN float16 behavior. AbstractMusic
+now treats the default official turbo path as guidance-unsupported and defaults turbo guidance to
+`1.0`; this is a correctness cleanup, not a fix for the repetitive-output quality failure.

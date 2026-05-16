@@ -16,7 +16,7 @@ the CLI, and made the default because the 0.6B results were too weak for the tar
 
 ## Status counts
 
-- Planned: 7
+- Planned: 9
 - Proposed: 1
 - Completed: 5
 - Deprecated: 0
@@ -26,17 +26,22 @@ the CLI, and made the default because the 0.6B results were too weak for the tar
 
 - P0: keep the validated official ACE-Step path reliable and user-tryable through the REPL.
 - P0: add a repetition/novelty quality gate before calling ACE-Step output production-quality.
+- P1: add a small MusicGen validation backend so ACE-Step quality can be judged against a known
+  small text-to-music baseline.
 - P1: broaden provider coverage and improve quality metadata with real validation.
 - P2: evaluate optional/non-core model families without polluting the base install.
 
 ## Next recommended work
 
-1. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
-2. Complete `planned/030_acestep_diffusers_xl_provider.md`.
-3. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
-4. Complete `planned/050_dependency_profiles_and_optional_providers.md`.
-5. Complete `planned/055_heartmula_optional_provider.md`.
-6. Complete `planned/060_yue_optional_provider.md`.
+1. Complete `planned/065_acestep_repetition_quality_gate.md`.
+2. Complete `planned/070_musicgen_small_optional_provider.md`.
+3. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
+4. Complete `planned/030_acestep_diffusers_xl_provider.md`.
+5. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
+6. Complete `planned/050_dependency_profiles_and_optional_providers.md`.
+7. Complete `planned/055_heartmula_optional_provider.md`.
+8. Complete `planned/060_yue_optional_provider.md`.
+9. Complete `planned/075_stable_audio_open_small_validation.md`.
 
 ## Planned work
 
@@ -45,6 +50,9 @@ the CLI, and made the default because the 0.6B results were too weak for the tar
 | P1 | `planned/030_acestep_diffusers_xl_provider.md` | Add and validate a dedicated ACE-Step Diffusers provider for the official XL Turbo checkpoint. |
 | P1 | `planned/035_acestep_v15_backend_compatibility_hardening.md` | Stabilize or retire the current custom ACE-Step v1.5 backend with tested dependency bounds. |
 | P1 | `planned/045_audio_artifact_screening_and_quality_metadata.md` | Strengthen artifact screening and make quality validation metadata first-class. |
+| P0 | `planned/065_acestep_repetition_quality_gate.md` | Add a spectral novelty gate so repetitive harmonic loops are not treated as acceptable music. |
+| P1 | `planned/070_musicgen_small_optional_provider.md` | Add a small non-commercial MusicGen baseline provider for real quality comparison. |
+| P2 | `planned/075_stable_audio_open_small_validation.md` | Validate the gated Stable Audio Open Small short-clip provider through AbstractMusic. |
 | P2 | `planned/050_dependency_profiles_and_optional_providers.md` | Move heavy model stacks behind extras and document TinyMozart/Omni2Sound boundaries. |
 | P2 | `planned/055_heartmula_optional_provider.md` | Evaluate and implement HeartMuLa as an optional lyrics/tags music provider if dependency and runtime boundaries are acceptable. |
 | P2 | `planned/060_yue_optional_provider.md` | Evaluate YuE as an optional multi-stage lyrics-to-music provider without claiming partial token generation is audio. |
@@ -88,6 +96,12 @@ When a planned item is complete:
   through AbstractMusic.
 - The official ACE-Step XL Turbo Diffusers checkpoint is the cleanest near-term improvement path
   because it uses a standard Diffusers pipeline layout and `AceStepPipeline`.
+- `facebook/musicgen-small` is a useful small validation provider because it has a simple
+  Transformers path and 300M weights, but it is CC BY-NC 4.0 and must not become the commercial
+  default.
+- `stabilityai/stable-audio-open-small` is a 341M gated short text-to-audio model worth tracking
+  for sound effects/loops and Apple/Arm-friendly experiments, but it is not currently a strong
+  default music model candidate.
 - TinyMozart is small and local but is unconditional MIDI piano, not general prompt-to-music, and
   has no declared license in the Hugging Face metadata reviewed on 2026-05-15.
 - Omni2Sound is useful research for multimodal audio/foley, but it is CC BY-NC 4.0, CUDA/script

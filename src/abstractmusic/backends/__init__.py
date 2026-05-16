@@ -16,6 +16,10 @@ __all__ = [
     "AceStepDiffusersBackendConfig",
     "DiffusersAudioBackend",
     "DiffusersAudioBackendConfig",
+    "MusicGenBackend",
+    "MusicGenBackendConfig",
+    "StableAudioBackend",
+    "StableAudioBackendConfig",
 ]
 
 
@@ -36,4 +40,12 @@ def __getattr__(name: str):
         from .diffusers_audio import DiffusersAudioBackend, DiffusersAudioBackendConfig
 
         return DiffusersAudioBackend if name == "DiffusersAudioBackend" else DiffusersAudioBackendConfig
+    if name in {"MusicGenBackend", "MusicGenBackendConfig"}:
+        from .musicgen import MusicGenBackend, MusicGenBackendConfig
+
+        return MusicGenBackend if name == "MusicGenBackend" else MusicGenBackendConfig
+    if name in {"StableAudioBackend", "StableAudioBackendConfig"}:
+        from .stable_audio import StableAudioBackend, StableAudioBackendConfig
+
+        return StableAudioBackend if name == "StableAudioBackend" else StableAudioBackendConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -14,6 +14,8 @@ def test_music_model_registry_contains_reviewed_models():
 
     assert "ACE-Step/Ace-Step1.5" in ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in ids
+    assert "facebook/musicgen-small" in ids
+    assert "stabilityai/stable-audio-open-small" in ids
     assert "HeartMuLa/HeartMuLa-oss-3B-happy-new-year" in ids
     assert "m-a-p/YuE-s1-7B-anneal-en-cot" in ids
     assert "LH-Tech-AI/TinyMozart_v2_85M" in ids
@@ -51,6 +53,36 @@ def test_yue_registry_metadata():
 
 
 @pytest.mark.unit
+def test_musicgen_small_registry_metadata():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("facebook/musicgen-small")
+
+    assert spec.supports_task("text_to_music")
+    assert spec.license == "CC-BY-NC-4.0"
+    assert spec.commercial_allowed is False
+    assert spec.sample_rate_hz == 32000
+    assert spec.supports_guidance_scale is True
+    assert spec.dependency_extra == "musicgen"
+    assert "300M" in spec.notes
+
+
+@pytest.mark.unit
+def test_stable_audio_registry_metadata():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("stabilityai/stable-audio-open-small")
+
+    assert spec.supports_task("text_to_music")
+    assert spec.supports_task("text_to_audio")
+    assert spec.commercial_allowed is False
+    assert spec.max_duration_s == 11
+    assert spec.supports_guidance_scale is True
+    assert spec.dependency_extra == "stable-audio"
+    assert "Hugging Face access approval" in spec.notes
+
+
+@pytest.mark.unit
 def test_acestep_v15_registry_recommends_official_backend_not_custom_path():
     from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
 
@@ -59,6 +91,7 @@ def test_acestep_v15_registry_recommends_official_backend_not_custom_path():
     assert spec.recommended is True
     assert spec.status == "official-backend-implemented-custom-invalid"
     assert "acestep-official" in spec.backend_kinds
+    assert spec.supports_guidance_scale is False
     assert "rotor-like" in spec.notes
     assert "custom backend" in spec.notes
 
@@ -100,7 +133,18 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
     assert "numpy" not in deps
 
     extras = data["project"]["optional-dependencies"]
-    for extra in ["acestep", "acestep-official", "acestep-diffusers", "diffusers", "local", "apple", "gpu", "yue"]:
+    for extra in [
+        "acestep",
+        "acestep-official",
+        "acestep-diffusers",
+        "diffusers",
+        "local",
+        "apple",
+        "gpu",
+        "musicgen",
+        "stable-audio",
+        "yue",
+    ]:
         assert extra in extras
     assert any(str(dep).startswith("torch") for dep in extras["acestep"])
     assert any(str(dep).startswith("mlx-lm") for dep in extras["apple"])

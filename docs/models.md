@@ -11,9 +11,18 @@ silently change the configured model.
 - `ACE-Step/Ace-Step1.5`: recommended through `acestep-official`, MIT, text-to-music with lyrics.
   This path wraps the upstream ACE-Step handler and 5Hz LM planner, and defaults to the bundled
   `acestep-5Hz-lm-1.7B` LM. Short instrumental generations remain quality-risky: recent 10-second
-  smokes produced harmonic audio but were still highly repetitive. The older packaged custom
-  backend remains non-recommended because a 3-second Apple MPS run produced valid PCM but sounded
-  and measured like fast rotor-like audio.
+  smokes produced harmonic audio but were still highly repetitive. The default turbo DiT does not
+  use CFG, so `guidance_scale` is treated as unsupported unless a non-turbo DiT is explicitly
+  configured. The older packaged custom backend remains non-recommended because a 3-second Apple
+  MPS run produced valid PCM but sounded and measured like fast rotor-like audio.
+- `facebook/musicgen-small`: 300M text-to-music model through Transformers, CC BY-NC 4.0. This is
+  configured as the optional `musicgen` backend and remains the best small validation candidate
+  because its inference path is straightforward and model family is established, but the weights
+  are non-commercial.
+- `stabilityai/stable-audio-open-small`: 341M gated text-to-audio model, Stability AI Community
+  License, short 11-second clips. It is configured as the optional `stable-audio` backend and is
+  interesting for Apple/Arm-friendly short clips and sound effects, but not a strong default music
+  candidate. Hugging Face access approval is required before weights can be downloaded.
 - `ACE-Step/acestep-v15-xl-turbo-diffusers`: preferred next ACE-Step XL provider candidate, MIT,
   Diffusers `AceStepPipeline`, text-to-music with lyrics; adapter implemented, real model
   validation pending.

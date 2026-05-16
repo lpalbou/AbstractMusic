@@ -12,7 +12,15 @@ Install a local runtime extra before generation:
 pip install "abstractmusic[acestep]"
 pip install "abstractmusic[acestep-official]"
 pip install "abstractmusic[acestep-diffusers]"
+pip install "abstractmusic[musicgen]"
+pip install "abstractmusic[stable-audio]"
+pip install --no-deps stable-audio-tools==0.0.19
 ```
+
+The extra `stable-audio` intentionally avoids the full `stable-audio-tools` dependency graph
+because the upstream package pulls UI/training dependencies and pins packages that do not install
+cleanly on Python 3.12. Install `stable-audio-tools` with `--no-deps`; AbstractMusic provides the
+minimal inference loop it needs.
 
 ## Generate Music
 
@@ -34,6 +42,8 @@ Generated WAV files should be treated as artifacts, not source files.
 abstractmusic --backend acestep-official t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
+abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
+abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 ```
 
 Use `--verbose` when you need upstream backend logs and progress bars. By default the CLI keeps
@@ -46,6 +56,7 @@ Use the REPL to try prompts, engines, and generation parameters without restarti
 ```bash
 abstractmusic repl --engine official --duration 10 --out-dir smoke-artifacts/repl
 abstractmusic repl --engine xl --duration 10 --out-dir smoke-artifacts/repl
+abstractmusic repl --engine musicgen --duration 10 --out-dir smoke-artifacts/repl
 ```
 
 Inside the REPL:
@@ -55,6 +66,7 @@ Inside the REPL:
 /lm-backend mlx
 /lm acestep-5Hz-lm-1.7B
 /duration 12
+/bpm 128
 /steps 8
 /shift 3
 /audio-cover-strength 1
@@ -70,8 +82,10 @@ bright melodic synth pop loop with steady drums
 ```
 
 Engines currently exposed through the unified CLI are `acestep-official`, `acestep`,
-`acestep-diffusers`, and `diffusers`. `acestep` is the older custom path and remains useful for
-compatibility work, but `acestep-official` is the recommended ACE-Step path.
+`acestep-diffusers`, `diffusers`, `musicgen`, and `stable-audio`. `acestep` is the older custom
+path and remains useful for compatibility work, but `acestep-official` is the recommended ACE-Step
+path. `musicgen` is a small non-commercial validation backend. `stable-audio` is gated on Hugging
+Face and supports short clips up to 11 seconds.
 
 The official backend defaults to the bundled `acestep-5Hz-lm-1.7B` model. The smaller
 `acestep-5Hz-lm-0.6B` model can still be selected with `/lm acestep-5Hz-lm-0.6B` for faster

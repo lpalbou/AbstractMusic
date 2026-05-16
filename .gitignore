@@ -41,3 +41,4 @@ ckpt/
 hf_cache/
 huggingface/
 
+untracked

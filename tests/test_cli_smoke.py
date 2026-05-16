@@ -60,6 +60,24 @@ def test_cli_accepts_official_engine_alias():
     assert args.lm_temperature == 0.85
     assert args.audio_cover_strength == 1.0
 
+    args = build_parser().parse_args(["repl", "--engine", "official", "--bpm", "128", "--keyscale", "F# major", "--timesignature", "4"])
+    assert args.bpm == 128
+    assert args.keyscale == "F# major"
+    assert args.timesignature == "4"
+
+
+@pytest.mark.unit
+def test_cli_accepts_musicgen_and_stable_audio_engines():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(["--engine", "musicgen-small", "t2m", "lo-fi music", "--duration", "5"])
+    assert args.backend == "musicgen"
+    assert args.cmd == "t2m"
+
+    args = build_parser().parse_args(["repl", "--engine", "stable-audio-open-small", "--duration", "5"])
+    assert args.backend == "stable-audio"
+    assert args.cmd == "repl"
+
 
 @pytest.mark.unit
 def test_cli_accepts_verbose_flag_after_subcommand():
@@ -80,6 +98,9 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
 
     repl.onecmd("/engine xl")
     repl.onecmd("/duration 12")
+    repl.onecmd("/bpm 128")
+    repl.onecmd("/keyscale F# major")
+    repl.onecmd("/timesignature 4")
     repl.onecmd("/steps 16")
     repl.onecmd("/seed 42")
     repl.onecmd("/lm acestep-5Hz-lm-0.6B")
@@ -90,6 +111,9 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
 
     assert repl.args.backend == "acestep-diffusers"
     assert repl.args.duration == 12.0
+    assert repl.args.bpm == 128
+    assert repl.args.keyscale == "F# major"
+    assert repl.args.timesignature == "4"
     assert repl.args.steps == 16
     assert repl.args.seed == 42
     assert repl.args.lm_model_path == "acestep-5Hz-lm-0.6B"
@@ -175,6 +199,7 @@ def test_music_repl_request_parameters_do_not_reload_manager():
     repl._manager_dirty = False
 
     repl.onecmd("/duration 30")
+    repl.onecmd("/bpm 128")
     repl.onecmd("/steps 8")
     repl.onecmd("/seed 123")
     repl.onecmd("/guidance 1")

@@ -60,3 +60,6 @@ The registry is metadata only. It must not silently change the configured provid
 - `acestep-diffusers`: ACE-Step Diffusers adapter for
   `ACE-Step/acestep-v15-xl-turbo-diffusers`.
 - `diffusers`: generic Diffusers audio backend for compatible audio pipelines.
+- `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
+- `stable-audio`: stable-audio-tools adapter for `stabilityai/stable-audio-open-small`
+  (gated, non-default, short clips).

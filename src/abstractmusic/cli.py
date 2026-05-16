@@ -22,7 +22,7 @@ if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "Y
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
 
-SUPPORTED_BACKENDS = ("acestep-official", "acestep", "acestep-diffusers", "diffusers")
+SUPPORTED_BACKENDS = ("acestep-official", "acestep", "acestep-diffusers", "diffusers", "musicgen", "stable-audio")
 DEFAULT_OFFICIAL_LM_MODEL_PATH = "acestep-5Hz-lm-1.7B"
 BACKEND_ALIASES = {
     "official": "acestep-official",
@@ -39,6 +39,11 @@ BACKEND_ALIASES = {
     "acestep-xl": "acestep-diffusers",
     "acestep_diffusers": "acestep-diffusers",
     "diffusers-xl": "acestep-diffusers",
+    "musicgen-small": "musicgen",
+    "facebook-musicgen-small": "musicgen",
+    "stable": "stable-audio",
+    "stableaudio": "stable-audio",
+    "stable-audio-open-small": "stable-audio",
     "hf": "diffusers",
     "generic": "diffusers",
 }
@@ -154,14 +159,15 @@ def build_parser() -> argparse.ArgumentParser:
             default=_normalize_backend(_env("ABSTRACTMUSIC_BACKEND", "acestep-official") or "acestep-official")
             if use_defaults
             else default_suppress,
-            help="Local generation engine/backend (acestep-official|acestep|acestep-diffusers|diffusers; aliases: official, xl, ace, hf). Default: acestep-official.",
+            help="Local generation engine/backend (acestep-official|acestep|acestep-diffusers|diffusers|musicgen|stable-audio; aliases: official, xl, ace, hf). Default: acestep-official.",
         )
         parser.add_argument(
             "--model-id",
             default=_env("ABSTRACTMUSIC_MODEL_ID") if use_defaults else default_suppress,
             help="Model repo id (or set $ABSTRACTMUSIC_MODEL_ID). "
             "Diffusers: any Diffusers audio checkpoint id (license varies). "
-            "ACE-Step: ACE-Step/Ace-Step1.5. ACE-Step Diffusers: ACE-Step/acestep-v15-xl-turbo-diffusers",
+            "ACE-Step: ACE-Step/Ace-Step1.5. ACE-Step Diffusers: ACE-Step/acestep-v15-xl-turbo-diffusers. "
+            "MusicGen: facebook/musicgen-small. Stable Audio: stabilityai/stable-audio-open-small.",
         )
         parser.add_argument(
             "--revision",
@@ -232,6 +238,23 @@ def build_parser() -> argparse.ArgumentParser:
             type=float,
             default=float(_env("ABSTRACTMUSIC_DURATION_S", "10") or "10") if use_defaults else default_suppress,
             help="seconds",
+        )
+        bpm_env = _env("ABSTRACTMUSIC_BPM")
+        parser.add_argument(
+            "--bpm",
+            type=int,
+            default=int(bpm_env) if use_defaults and bpm_env is not None else default_suppress,
+            help="Optional target BPM for engines that support music metadata.",
+        )
+        parser.add_argument(
+            "--keyscale",
+            default=_env("ABSTRACTMUSIC_KEYSCALE") if use_defaults else default_suppress,
+            help="Optional musical key/scale, e.g. C major or A minor.",
+        )
+        parser.add_argument(
+            "--timesignature",
+            default=_env("ABSTRACTMUSIC_TIMESIGNATURE") if use_defaults else default_suppress,
+            help="Optional time signature metadata, e.g. 4.",
         )
         parser.add_argument(
             "--guidance-scale",
@@ -368,7 +391,7 @@ def _make_manager_from_args(args: argparse.Namespace):
             device=str(getattr(args, "device", "auto") or "auto"),
             default_duration_s=float(getattr(args, "duration", 10.0)),
             num_inference_steps=int(getattr(args, "steps", None) or 8),
-            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 7.0,
+            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 1.0,
             shift=_arg_float(args, "shift", 3.0),
             infer_method=_arg_str(args, "infer_method", "ode"),
             sampler_mode=_arg_str(args, "sampler_mode", "euler"),
@@ -414,6 +437,36 @@ def _make_manager_from_args(args: argparse.Namespace):
             guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else None,
         )
         backend = DiffusersAudioBackend(config=cfg)
+        return MusicManager(backend=backend)
+
+    if backend_kind == "musicgen":
+        from .backends.musicgen import MusicGenBackend, MusicGenBackendConfig
+
+        if not model_id:
+            model_id = "facebook/musicgen-small"
+        cfg = MusicGenBackendConfig(
+            model_id=model_id,
+            device=str(getattr(args, "device", "auto") or "auto"),
+            torch_dtype=str(getattr(args, "dtype", "auto") or "auto"),
+            duration_s=float(getattr(args, "duration", 10.0)),
+            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 3.0,
+        )
+        backend = MusicGenBackend(config=cfg)
+        return MusicManager(backend=backend)
+
+    if backend_kind == "stable-audio":
+        from .backends.stable_audio import StableAudioBackend, StableAudioBackendConfig
+
+        if not model_id:
+            model_id = "stabilityai/stable-audio-open-small"
+        cfg = StableAudioBackendConfig(
+            model_id=model_id,
+            device=str(getattr(args, "device", "auto") or "auto"),
+            duration_s=float(getattr(args, "duration", 10.0)),
+            num_inference_steps=int(getattr(args, "steps", None) or 8),
+            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 1.0,
+        )
+        backend = StableAudioBackend(config=cfg)
         return MusicManager(backend=backend)
 
     if backend_kind == "acestep":
@@ -466,7 +519,7 @@ def _official_generation_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
     if backend_kind != "acestep-official":
         return {}
-    return {
+    kwargs: dict[str, Any] = {
         "shift": _arg_float(args, "shift", 3.0),
         "infer_method": _arg_str(args, "infer_method", "ode"),
         "sampler_mode": _arg_str(args, "sampler_mode", "euler"),
@@ -477,6 +530,13 @@ def _official_generation_kwargs(args: argparse.Namespace) -> dict[str, Any]:
         "audio_cover_strength": _arg_float(args, "audio_cover_strength", 1.0),
         "cover_noise_strength": _arg_float(args, "cover_noise_strength", 0.0),
     }
+    if getattr(args, "bpm", None) is not None:
+        kwargs["bpm"] = int(getattr(args, "bpm"))
+    if getattr(args, "keyscale", None):
+        kwargs["keyscale"] = str(getattr(args, "keyscale"))
+    if getattr(args, "timesignature", None):
+        kwargs["timesignature"] = str(getattr(args, "timesignature"))
+    return kwargs
 
 
 def _cmd_t2m(args: argparse.Namespace) -> int:
@@ -484,7 +544,7 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
     backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
     prompt = str(args.prompt)
     lyrics = getattr(args, "lyrics", None)
-    if backend_kind == "diffusers" and isinstance(lyrics, str) and lyrics.strip():
+    if backend_kind in {"diffusers", "musicgen", "stable-audio"} and isinstance(lyrics, str) and lyrics.strip():
         # Avoid silently ignoring lyrics for backends that do not support them.
         prompt = f"{prompt}\n\nLyrics:\n{lyrics.strip()}"
         lyrics = None
@@ -640,7 +700,7 @@ class MusicREPL(cmd.Cmd):
         lyrics = getattr(self.args, "lyrics", None)
         request_prompt = prompt
         request_lyrics = lyrics
-        if backend_kind == "diffusers" and isinstance(lyrics, str) and lyrics.strip():
+        if backend_kind in {"diffusers", "musicgen", "stable-audio"} and isinstance(lyrics, str) and lyrics.strip():
             request_prompt = f"{prompt}\n\nLyrics:\n{lyrics.strip()}"
             request_lyrics = None
         duration = float(getattr(self.args, "duration", 10.0))
@@ -681,13 +741,16 @@ class MusicREPL(cmd.Cmd):
         print("  /prompt [text|clear]     Show, set, or clear the session prompt")
         print("  /run                     Generate from the current prompt")
         print("  /generate [prompt]       Generate from a prompt; bare prompt also works")
-        print("  /engine [name]           Show or set engine: acestep-official, acestep, xl, diffusers")
+        print("  /engine [name]           Show or set engine: acestep-official, acestep, xl, diffusers, musicgen, stable-audio")
         print("  /model [id|clear]        Show or set model id")
         print("  /lm [name]               Show or set official ACE-Step 5Hz LM checkpoint")
         print("  /lm-backend [auto|mlx|vllm|pt]")
         print("  /device [auto|mps|cuda|cpu]")
         print("  /dtype [auto|float16|bfloat16|float32]")
         print("  /duration <seconds>      Set generation duration")
+        print("  /bpm <n|auto>            Set target BPM metadata")
+        print("  /keyscale <text|clear>   Set target key/scale metadata")
+        print("  /timesignature <n|clear> Set target time signature metadata")
         print("  /steps <n|auto>          Set inference steps")
         print("  /seed <n|auto>           Set seed")
         print("  /guidance <value|auto>   Set guidance scale")
@@ -817,6 +880,15 @@ class MusicREPL(cmd.Cmd):
     def do_duration(self, arg: str) -> None:
         self._set_optional_float("duration", arg, "duration", clear_to_none=False)
 
+    def do_bpm(self, arg: str) -> None:
+        self._set_optional_int("bpm", arg, "bpm")
+
+    def do_keyscale(self, arg: str) -> None:
+        self._set_optional_text("keyscale", arg, "keyscale")
+
+    def do_timesignature(self, arg: str) -> None:
+        self._set_optional_text("timesignature", arg, "timesignature")
+
     def do_steps(self, arg: str) -> None:
         self._set_optional_int("steps", arg, "steps")
 
@@ -925,6 +997,9 @@ class MusicREPL(cmd.Cmd):
             ("device", getattr(self.args, "device", "auto")),
             ("dtype", getattr(self.args, "dtype", "auto")),
             ("duration", getattr(self.args, "duration", None)),
+            ("bpm", getattr(self.args, "bpm", None) if getattr(self.args, "bpm", None) is not None else "auto"),
+            ("keyscale", getattr(self.args, "keyscale", None) or "auto"),
+            ("timesignature", getattr(self.args, "timesignature", None) or "auto"),
             ("steps", getattr(self.args, "steps", None) or "auto"),
             ("seed", getattr(self.args, "seed", None) if getattr(self.args, "seed", None) is not None else "auto"),
             ("guidance", getattr(self.args, "guidance_scale", None) if getattr(self.args, "guidance_scale", None) is not None else "auto"),

@@ -104,6 +104,7 @@ def test_acestep_official_backend_uses_upstream_contract(monkeypatch, tmp_path):
             duration_s=10,
             num_inference_steps=8,
             seed=123,
+            extra={"bpm": 128, "keyscale": "F# major", "timesignature": "4"},
         )
     )
 
@@ -113,7 +114,10 @@ def test_acestep_official_backend_uses_upstream_contract(monkeypatch, tmp_path):
     assert calls["dit_init"]["use_mlx_dit"] is True
     assert calls["llm_init"]["lm_model_path"] == "acestep-5Hz-lm-1.7B"
     assert calls["params"]["caption"] == "bright melodic synth loop"
-    assert calls["params"]["guidance_scale"] == 7.0
+    assert calls["params"]["bpm"] == 128
+    assert calls["params"]["keyscale"] == "F# major"
+    assert calls["params"]["timesignature"] == "4"
+    assert calls["params"]["guidance_scale"] == 1.0
     assert calls["params"]["shift"] == 3.0
     assert calls["params"]["infer_method"] == "ode"
     assert calls["params"]["sampler_mode"] == "euler"
@@ -122,6 +126,17 @@ def test_acestep_official_backend_uses_upstream_contract(monkeypatch, tmp_path):
     assert calls["params"]["audio_cover_strength"] == 1.0
     assert calls["params"]["cover_noise_strength"] == 0.0
     assert calls["config"]["seeds"] == [123]
+
+
+@pytest.mark.unit
+def test_acestep_official_turbo_guidance_capability_is_disabled():
+    from abstractmusic.backends.acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
+
+    turbo = AceStepOfficialBackend(config=AceStepOfficialBackendConfig(dit_model="acestep-v15-turbo"))
+    sft = AceStepOfficialBackend(config=AceStepOfficialBackendConfig(dit_model="acestep-v15-sft"))
+
+    assert turbo.get_capabilities().supports_guidance_scale is False
+    assert sft.get_capabilities().supports_guidance_scale is True
 
 
 @pytest.mark.unit

@@ -146,6 +146,13 @@ turbo scheduling by defaulting `shift=3.0`, and the CLI/REPL now expose `shift`,
 LM sampling controls, and `audio_cover_strength`. Additional trials showed that the provider still
 needs a separate repetition/novelty gate before it can be called production-quality.
 
+2026-05-15: The official API example shape was also run locally on Apple hardware with
+`caption="upbeat electronic dance music with heavy bass"`, `bpm=128`, `duration=30`, 0.6B LM, empty
+lyrics, and batch generation. It required AbstractMusic's Transformers meta-init compatibility shim
+to load on this environment. The run succeeded, but the generated WAVs still showed very high
+spectral self-similarity. AbstractMusic was updated to stop forcing `[Instrumental]` when lyrics are
+omitted and to pass explicit BPM/key/time-signature metadata.
+
 ## Guidance for the implementing agent
 
 Favor the official ACE-Step handler and model planner over reconstructing model internals. Keep the

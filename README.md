@@ -72,6 +72,8 @@ open("out.wav", "wb").write(wav_bytes)
 - Audio output baseline is **WAV** (no external codecs required).
 - Model weights are downloaded on first use via the Hugging Face cache (same workflow as Diffusers-based vision).
 - The recommended ACE-Step v1.5 path is `acestep-official`, which wraps the upstream handler and 5Hz LM planner. On Apple Silicon it prefers MLX when available.
+- `musicgen` and `stable-audio` are optional small-model comparison backends; both are non-commercial and not default providers.
+- For Stable Audio Open Small, install `stable-audio-tools` with `--no-deps` after `abstractmusic[stable-audio]`; AbstractMusic avoids the upstream package's UI/training dependency chain and owns the minimal inference loop.
 - The older packaged custom ACE-Step v1.5 path is **not recommended**: a valid 3-second MPS WAV failed music-quality review as fast rotor-like audio.
 - The ACE-Step backend vendors the checkpoint’s custom Transformers model code into `abstractmusic` so we do **not** use `trust_remote_code`.
 - Known model/provider metadata is packaged in `src/abstractmusic/assets/music_model_capabilities.json`.
@@ -86,10 +88,13 @@ After installation, `abstractmusic` provides a small CLI:
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-official t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
+abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
+abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 
 # Interactive REPL
 abstractmusic --backend acestep-official repl
 abstractmusic --engine xl repl
+abstractmusic --engine musicgen repl
 ```
 
 The REPL accepts bare prompts, a reusable `/prompt` + `/run` flow, and slash commands for engine/parameter changes:
@@ -115,6 +120,8 @@ when you want upstream backend logs and progress bars.
 - The default backend example uses **ACE-Step v1.5** (`ACE-Step/Ace-Step1.5`), tagged `license:mit` on Hugging Face. The official adapter expects the upstream ACE-Step runtime as an optional dependency/source tree.
 - The vendored custom ACE-Step model code files carry **Apache-2.0** headers (both permissive), but that backend is not currently recommended.
 - The ACE-Step Diffusers XL example uses `ACE-Step/acestep-v15-xl-turbo-diffusers`, tagged `license:mit` on Hugging Face.
+- `facebook/musicgen-small` is exposed through `--backend musicgen`; its model weights are **CC BY-NC 4.0**, so it is a non-commercial validation backend.
+- `stabilityai/stable-audio-open-small` is exposed through `--backend stable-audio`; it is gated on Hugging Face and uses the **Stability AI Community License**.
 - If you switch to `--backend diffusers`, **model licenses vary** by checkpoint. Choose a model compatible with your intended usage.
 
 ### macOS / Apple Silicon note (MLX/MPS)
