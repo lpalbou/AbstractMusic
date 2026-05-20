@@ -79,6 +79,8 @@ open("out.wav", "wb").write(wav_bytes)
 - The standalone `acestep-v15` backend vendors the checkpoint’s custom Transformers model code into `abstractmusic` so we do **not** use `trust_remote_code` there.
 - Known model/provider metadata is packaged in `src/abstractmusic/assets/music_model_capabilities.json`.
   See `docs/models.md` for the reviewed model list and precision policy.
+- Full documentation starts at `docs/README.md`, including setup, API, architecture, models,
+  troubleshooting, and release process notes.
 
 ## CLI / REPL
 
@@ -153,10 +155,22 @@ metadata. These methods are import-light and must not instantiate model runtimes
 
 - The default backend example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.
 - The vendored standalone ACE-Step model code files carry **Apache-2.0** headers (both permissive).
-- The ACE-Step Diffusers XL example uses `ACE-Step/acestep-v15-xl-turbo-diffusers`, tagged `license:mit` on Hugging Face.
 - `facebook/musicgen-small` is exposed through `--backend musicgen`; its model weights are **CC BY-NC 4.0**, so it is a non-commercial validation backend.
 - `stabilityai/stable-audio-open-small` is exposed through `--backend stable-audio`; it is gated on Hugging Face and uses the **Stability AI Community License**.
 - If you switch to `--backend diffusers`, **model licenses vary** by checkpoint. Choose a model compatible with your intended usage.
+
+## CI/CD
+
+GitHub Actions validates tests, package builds, and documentation builds. Releases run from
+`v*.*.*` tags or manual dispatch through `.github/workflows/release.yml`.
+
+Manual dispatch defaults to `publish=false`, which is a rehearsal path: it validates version,
+changelog, package build, and docs without creating tags or publishing. To publish manually, set
+`publish=true` and `publish_confirmation=publish-abstractmusic-<version>`.
+
+Publishing uses PyPI trusted publishing with the `pypi` environment. Documentation deployment uses
+GitHub Pages with the `github-pages` environment. Repository setup must configure PyPI trusted
+publisher metadata for `release.yml` and GitHub Pages source as GitHub Actions.
 
 ### macOS / Apple Silicon note (MLX/MPS)
 

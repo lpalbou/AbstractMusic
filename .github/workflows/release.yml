@@ -10,6 +10,15 @@ on:
         description: "Release version, with or without the leading v (example: 0.1.2)"
         required: true
         type: string
+      publish:
+        description: "Publish to PyPI, create a GitHub Release, and deploy docs"
+        required: true
+        type: boolean
+        default: false
+      publish_confirmation:
+        description: "Required when publish=true: publish-abstractmusic-<version>"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -46,8 +55,11 @@ jobs:
     outputs:
       version: ${{ steps.release-meta.outputs.version }}
       tag: ${{ steps.release-meta.outputs.tag }}
+      should_publish: ${{ steps.release-meta.outputs.should_publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -60,13 +72,20 @@ jobs:
         id: release-meta
         env:
           RELEASE_INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+          RELEASE_INPUT_PUBLISH: ${{ github.event.inputs.publish || '' }}
+          RELEASE_INPUT_CONFIRMATION: ${{ github.event.inputs.publish_confirmation || '' }}
         run: |
           python - <<'PY'
           import os
           import re
+          import urllib.error
+          import urllib.request
           from pathlib import Path
 
           version_input = os.environ.get("RELEASE_INPUT_VERSION", "").strip()
+          publish_input = os.environ.get("RELEASE_INPUT_PUBLISH", "").strip().lower()
+          confirmation = os.environ.get("RELEASE_INPUT_CONFIRMATION", "").strip()
+          event_name = os.environ["GITHUB_EVENT_NAME"].strip()
           ref_name = os.environ["GITHUB_REF_NAME"].strip()
           raw_version = version_input or ref_name
           version = raw_version[1:] if raw_version.startswith("v") else raw_version
@@ -84,6 +103,17 @@ jobs:
                   f"Tag version {version!r} does not match package version {package_version!r}"
               )
 
+          should_publish = event_name != "workflow_dispatch" or publish_input == "true"
+          if event_name == "workflow_dispatch" and should_publish:
+              expected = f"publish-abstractmusic-{version}"
+              if confirmation != expected:
+                  raise SystemExit(
+                      "Manual publish requires publish_confirmation="
+                      f"{expected!r}; got {confirmation!r}"
+                  )
+          if event_name != "workflow_dispatch" and ref_name != tag:
+              raise SystemExit(f"Tag trigger ref {ref_name!r} does not match expected {tag!r}")
+
           changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
           header = re.search(rf"^## \[{re.escape(version)}\] - .+$", changelog, re.MULTILINE)
           if not header:
@@ -95,11 +125,21 @@ jobs:
           if not notes:
               raise SystemExit(f"CHANGELOG.md entry for {version} is empty")
 
+          if should_publish:
+              url = f"https://pypi.org/pypi/abstractmusic/{version}/json"
+              try:
+                  with urllib.request.urlopen(url, timeout=10):
+                      raise SystemExit(f"PyPI already has abstractmusic {version}; refusing duplicate publish")
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+
           Path("release-notes.md").write_text(notes + "\n", encoding="utf-8")
           github_output = Path(os.environ["GITHUB_OUTPUT"])
           with github_output.open("a", encoding="utf-8") as fh:
               print(f"version={version}", file=fh)
               print(f"tag={tag}", file=fh)
+              print(f"should_publish={str(should_publish).lower()}", file=fh)
           PY
       - name: Build
         run: python -m build
@@ -114,10 +154,32 @@ jobs:
           name: release-notes
           path: release-notes.md
 
+  docs:
+    name: Build docs
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install docs tools
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e ".[docs]"
+      - name: Build docs
+        run: mkdocs build --strict
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: site
+
   ensure-tag:
     name: Ensure release tag
     runs-on: ubuntu-latest
     needs: build
+    if: needs.build.outputs.should_publish == 'true'
     permissions:
       contents: write
     steps:
@@ -144,6 +206,7 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: [build, ensure-tag]
+    if: needs.build.outputs.should_publish == 'true'
     environment:
       name: pypi
       url: https://pypi.org/project/abstractmusic/
@@ -161,6 +224,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: [build, ensure-tag, publish-pypi]
+    if: needs.build.outputs.should_publish == 'true'
     permissions:
       contents: write
     steps:
@@ -179,3 +243,27 @@ jobs:
           body_path: release-notes.md
           files: dist/*
           fail_on_unmatched_files: true
+
+  deploy-docs:
+    name: Deploy docs to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [build, docs, ensure-tag, publish-pypi, github-release]
+    if: needs.build.outputs.should_publish == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

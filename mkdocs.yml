@@ -1,0 +1,26 @@
+site_name: AbstractMusic
+site_description: Model-agnostic local music and audio generation abstractions for the Abstract ecosystem
+site_url: https://lpalbou.github.io/AbstractMusic/
+repo_name: lpalbou/AbstractMusic
+repo_url: https://github.com/lpalbou/AbstractMusic
+
+theme:
+  name: mkdocs
+
+nav:
+  - Home: README.md
+  - Getting Started: getting-started.md
+  - API: api.md
+  - Architecture: architecture.md
+  - Models: models.md
+  - FAQ: faq.md
+  - Troubleshooting: troubleshooting.md
+  - Release Process: release.md
+  - Backlog:
+      - Overview: backlog/overview.md
+      - Index: backlog/README.md
+  - ADR:
+      - Overview: adr/README.md
+      - Provider Abstraction: adr/0001_music_provider_abstraction_and_dependency_policy.md
+
+strict: true

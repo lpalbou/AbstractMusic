@@ -1,0 +1,201 @@
+# AbstractMusic
+
+> Model-agnostic local music and audio generation abstractions for the Abstract ecosystem.
+
+This file is an AI-readable companion to the repository docs. It summarizes the current public
+documentation and points to canonical files for details. It is not the source of truth; the linked
+docs and package metadata are canonical.
+
+## Document Index
+
+- [README.md](README.md): overview, installation, quick starts, CLI, text planning, licensing, CI/CD, and Apple/MPS behavior.
+- [docs/README.md](docs/README.md): docs tree index.
+- [docs/getting-started.md](docs/getting-started.md): install and first-run workflows.
+- [docs/architecture.md](docs/architecture.md): core contracts and dependency boundaries.
+- [docs/api.md](docs/api.md): public API, request fields, planner hooks, registry, and backend kinds.
+- [docs/models.md](docs/models.md): reviewed model list and license/precision policy.
+- [docs/faq.md](docs/faq.md): common questions and limits.
+- [docs/troubleshooting.md](docs/troubleshooting.md): user-visible failure modes and recovery steps.
+- [docs/release.md](docs/release.md): release workflow and publishing setup.
+- [CHANGELOG.md](CHANGELOG.md): release history.
+- [CONTRIBUTING.md](CONTRIBUTING.md): development and contribution rules.
+- [SECURITY.md](SECURITY.md): private vulnerability reporting.
+
+---
+
+## README.md
+
+AbstractMusic is a local-first text-to-music/text-to-audio library for the Abstract ecosystem. The
+base package is import-light and contains contracts, manager code, CLI/plugin wiring, docs, and
+model metadata. Heavy runtime stacks live behind optional extras such as `acestep`,
+`acestep-diffusers`, `acestep-v15`, `musicgen`, and `stable-audio`.
+
+The default local ACE-Step route is `acestep` / `acestep-diffusers`. It uses AbstractMusic-owned
+orchestration around Diffusers `AceStepPipeline` and Hugging Face model weights. It does not use an
+external ACE-Step source tree or package at runtime. The explicit `acestep-v15` backend uses
+vendored model code but remains quality-limited after repeated-loop validation failures.
+
+Typical CLI usage:
+
+```bash
+abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
+abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
+```
+
+For generations of 45 seconds or more, `--structure-prompt` is enabled by default. It can be
+disabled with `--no-structure-prompt`.
+
+AbstractMusic separates text planning from audio synthesis. The built-in planner is
+dependency-free. Host applications can inject smarter planners through `MusicManager` or plugin
+configuration. When hosted by AbstractCore, AbstractMusic may consume a narrow structural text
+service exposing `generate_text(...)` or `generate_structured(...)` without importing AbstractCore.
+
+On Apple hardware, ACE-Step Diffusers tries PyTorch MPS first. The automatic dtype policy prefers
+MPS bfloat16 when supported, then MPS float32, with CPU float32 as the final fallback for invalid
+audio.
+
+---
+
+## docs/getting-started.md
+
+Install the base package with `pip install abstractmusic`, then install a backend extra before
+generation. The default ACE-Step install profile is:
+
+```bash
+pip install "abstractmusic[acestep]"
+```
+
+The `stable-audio` extra intentionally avoids the full upstream `stable-audio-tools` dependency
+chain. For that backend, install `stable-audio-tools` with `--no-deps`.
+
+The public Python entry point is `MusicManager`. Backends are selected explicitly and generation
+returns WAV bytes or a `GeneratedAsset` depending on the method used. The CLI supports one-shot
+generation and an interactive REPL with commands for engine, duration, BPM, seed, lyrics, planner
+mode, and model listing.
+
+Fast tests use fakes for most model components. Real model smoke tests are opt-in with
+`ABSTRACTMUSIC_RUN_REAL_MODEL_TESTS=1` because checkpoints are large and hardware-sensitive.
+
+---
+
+## docs/architecture.md
+
+The core public contract is built around `MusicManager`, `MusicBackend`,
+`AudioGenerationRequest`, `GeneratedAsset`, and the model capability registry. Provider-specific
+logic belongs in backend modules. Shared fields such as prompt, lyrics, duration, format, seed,
+sample rate, and vocal language can be first-class request fields; specialized options should be
+explicit and documented.
+
+Text planning is a separate layer. A `MusicPlanningRequest` captures raw user intent and context,
+and a `MusicPromptPlan` is compiled into deterministic prompt/lyrics/metadata fields for the
+selected backend. AbstractMusic does not import AbstractCore or LLM runtimes for planning.
+
+Heavy imports must remain lazy. The base package stays focused on contracts, manager code,
+artifact helpers, docs, CLI/plugin shells, and provider metadata. Runtime engines live behind
+optional extras.
+
+---
+
+## docs/api.md
+
+`MusicManager` delegates generation to a configured backend. `generate_audio(...)` returns a
+`GeneratedAsset` unless a store is configured; `t2m(...)` returns WAV bytes directly.
+
+Planner providers can be callables accepting `request_dict`, objects with
+`plan_music_text(request_dict)`, or objects with `create_plan(MusicPlanningRequest)`.
+`text_planner_mode="auto"` uses an injected provider when present and falls back to the
+deterministic planner. `required` raises on provider failure, and `off` preserves raw text.
+
+The AbstractCore plugin exposes discovery methods such as `available_providers(...)`,
+`list_models(...)`, `list_provider_models(...)`, `list_operations(...)`, and
+`capability_catalog(...)` from packaged metadata without loading model weights.
+
+Built-in backend kinds include `acestep`, `acestep-diffusers`, `acestep-v15`, `diffusers`,
+`musicgen`, and `stable-audio`.
+
+---
+
+## docs/models.md
+
+The model registry lives at `src/abstractmusic/assets/music_model_capabilities.json`. It is
+metadata only and must not silently reroute configured providers or models.
+
+Reviewed model entries include:
+
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended default through `acestep` /
+  `acestep-diffusers`, MIT, text-to-music with lyrics.
+- `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics,
+  quality-limited in current validation.
+- `facebook/musicgen-small`: optional Transformers backend, CC BY-NC 4.0.
+- `stabilityai/stable-audio-open-small`: optional gated short-clip backend under the Stability AI
+  Community License.
+- Additional candidate models are tracked for future optional providers.
+
+The precision rule is to prefer official 8-bit artifacts when available. If none are available,
+prefer official 16-bit artifacts.
+
+---
+
+## docs/troubleshooting.md
+
+Common user-visible issues:
+
+- Missing generation packages usually means the backend extra was not installed.
+- ACE-Step model access uses Hugging Face model weights and the standard Hugging Face cache, not
+  local ACE-Step source-tree paths.
+- Apple MPS can fall back to CPU when generation returns non-finite audio; forcing CPU is supported
+  with `--device cpu`.
+- Long generations may need explicit structure, seed changes, or clearer prompts to avoid static or
+  repetitive output.
+- Stable Audio Open Small requires Hugging Face gate approval and a `stable-audio-tools` install
+  with `--no-deps`.
+- The release workflow refuses duplicate PyPI versions and requires manual publish confirmation
+  when dispatched by hand.
+
+---
+
+## docs/release.md
+
+The canonical version source is `src/abstractmusic/_version.py`; `pyproject.toml` reads it
+dynamically. Tags use `v<version>`.
+
+Local preflight includes:
+
+```bash
+python -m pytest -q -m unit
+python -m build
+python -m twine check dist/*
+mkdocs build --strict
+```
+
+Manual release dispatch defaults to `publish=false` for rehearsal. Publishing requires
+`publish=true` and `publish_confirmation=publish-abstractmusic-<version>`. PyPI trusted
+publishing uses the `pypi` environment, and documentation deploys through GitHub Pages using the
+`github-pages` environment.
+
+---
+
+## CHANGELOG.md
+
+The changelog records user-visible changes only. Version `0.1.3` adds documentation generation and
+deployment, release rehearsal safeguards, AI-readable docs indexes, troubleshooting and release
+docs, Dependabot configuration, and clearer documentation for text planning, ACE-Step runtime
+boundaries, Apple/MPS dtype behavior, Python 3.10 test compatibility, and duplicate PyPI-version
+protection.
+
+---
+
+## CONTRIBUTING.md
+
+Contributors should keep `MusicManager` model-agnostic, keep heavy imports lazy, avoid committing
+model weights or generated audio, update model capability metadata for provider changes, and add
+clear errors for unsupported request fields. Backend additions should include metadata, tests,
+docs for dependencies/hardware/license/precision, and real smoke tests when practical.
+
+---
+
+## SECURITY.md
+
+Security reports should be sent privately to `contact@abstractcore.ai`. Reports should include
+impact, reproduction steps, affected versions or commits, relevant logs/configuration, and
+suggested mitigation when available.

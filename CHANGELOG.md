@@ -2,6 +2,32 @@
 
 All notable changes to AbstractMusic will be documented in this file.
 
+## [0.1.3] - 2026-05-21
+
+### Added
+
+- Added a MkDocs documentation build and GitHub Pages deployment path to the release workflow.
+- Added release rehearsal support for manually dispatched releases, including explicit publish
+  confirmation before PyPI publication.
+- Added AI-readable documentation indexes with `llms.txt` and `llms-full.txt`.
+- Added troubleshooting and release-process documentation for installation, local runtime,
+  Apple/MPS, Stable Audio, and publishing workflows.
+- Added Dependabot configuration for GitHub Actions and Python dependency maintenance.
+
+### Changed
+
+- Documented the AbstractMusic text-planning boundary, including deterministic fallback planning
+  and host-injected planning services.
+- Documented the default ACE-Step Diffusers backend as the package-owned `acestep` route, with
+  Hugging Face model weights allowed and external ACE-Step source/runtime code excluded.
+- Documented Apple MPS dtype behavior for ACE-Step Diffusers, preferring stable MPS dtypes before
+  CPU fallback.
+
+### Fixed
+
+- Made Python 3.10 test metadata compatible by using `tomli` where `tomllib` is unavailable.
+- Hardened release validation to refuse duplicate PyPI versions before publishing.
+
 ## [0.1.2] - 2026-05-08
 
 ### Added
