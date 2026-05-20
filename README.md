@@ -69,7 +69,8 @@ open("out.wav", "wb").write(wav_bytes)
 ## Notes
 
 - Audio output baseline is **WAV** (no external codecs required).
-- Model weights are downloaded on first use via the Hugging Face cache (same workflow as Diffusers-based vision).
+- Model weights are resolved through the default Hugging Face cache on first use (same workflow as Diffusers-based vision).
+- `model_id` selectors must be Hugging Face repo ids. Local checkpoint directories and custom cache-dir overrides are intentionally not supported.
 - The default ACE-Step path is `acestep` / `acestep-diffusers`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
 - `acestep-v15` remains explicit and quality-limited after repeated-loop validation failures.
 - `musicgen` and `stable-audio` are optional small-model comparison backends; both are non-commercial and not default providers.

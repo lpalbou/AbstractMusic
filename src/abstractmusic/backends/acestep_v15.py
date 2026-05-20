@@ -36,6 +36,7 @@ from ..audio_analysis import (
     inspect_spectrotemporal_modulation_bytes,
 )
 from ..errors import OptionalDependencyMissingError
+from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
@@ -754,7 +755,6 @@ class AceStepV15BackendConfig:
 
     repo_id: str = "ACE-Step/Ace-Step1.5"
     revision: Optional[str] = _DEFAULT_ACESTEP_V15_REVISION
-    cache_dir: Optional[str] = None
     local_files_only: bool = True
 
     device: str = "auto"
@@ -822,6 +822,14 @@ class AceStepV15BackendConfig:
     quality_retry_enabled: bool = True
     quality_retry_max_attempts: int = 3
     quality_retry_fallback_seeds: tuple[int, ...] = (123, 124, 321)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "repo_id", require_hf_repo_id(self.repo_id, field_name="repo_id"))
+        object.__setattr__(
+            self,
+            "lm_fallback_repo_id",
+            require_hf_repo_id(self.lm_fallback_repo_id, field_name="lm_fallback_repo_id"),
+        )
 
 
 class AceStepV15Backend:
@@ -947,7 +955,6 @@ class AceStepV15Backend:
 
         repo_id = str(self._config.repo_id)
         revision = self._config.revision
-        cache_dir = self._config.cache_dir
         local_files_only = bool(self._config.local_files_only)
 
         # Load core DiT model (ACE-Step v1.5 turbo).
@@ -957,7 +964,6 @@ class AceStepV15Backend:
                 dtype=dtype,
                 pretrained_model_name_or_path=repo_id,
                 revision=revision,
-                cache_dir=cache_dir,
                 local_files_only=local_files_only,
                 subfolder=str(self._config.dit_subfolder),
             )
@@ -974,7 +980,6 @@ class AceStepV15Backend:
             self._text_tokenizer = AutoTokenizer.from_pretrained(
                 repo_id,
                 revision=revision,
-                cache_dir=cache_dir,
                 subfolder=str(self._config.text_encoder_subfolder),
                 trust_remote_code=False,
                 local_files_only=local_files_only,
@@ -988,7 +993,6 @@ class AceStepV15Backend:
                 dtype=text_dtype,
                 pretrained_model_name_or_path=repo_id,
                 revision=revision,
-                cache_dir=cache_dir,
                 subfolder=str(self._config.text_encoder_subfolder),
                 trust_remote_code=False,
                 local_files_only=local_files_only,
@@ -1006,7 +1010,6 @@ class AceStepV15Backend:
                 dtype=vae_dtype,
                 pretrained_model_name_or_path=repo_id,
                 revision=revision,
-                cache_dir=cache_dir,
                 subfolder=str(self._config.vae_subfolder),
                 low_cpu_mem_usage=False,
                 local_files_only=local_files_only,
@@ -1018,17 +1021,13 @@ class AceStepV15Backend:
 
         # Load and transpose silence latent (stored as [1, C, T] in repo).
         try:
-            if os.path.isdir(repo_id):
-                sl_path = os.path.join(repo_id, str(self._config.dit_subfolder), "silence_latent.pt")
-            else:
-                hf_hub_download = _lazy_import_hf_hub_download()
-                sl_path = hf_hub_download(
-                    repo_id=repo_id,
-                    revision=revision,
-                    cache_dir=cache_dir,
-                    filename=f"{self._config.dit_subfolder}/silence_latent.pt",
-                    local_files_only=local_files_only,
-                )
+            hf_hub_download = _lazy_import_hf_hub_download()
+            sl_path = hf_hub_download(
+                repo_id=repo_id,
+                revision=revision,
+                filename=f"{self._config.dit_subfolder}/silence_latent.pt",
+                local_files_only=local_files_only,
+            )
             sl = torch.load(sl_path, map_location="cpu")  # tensor
             if not isinstance(sl, torch.Tensor):
                 raise TypeError(f"silence_latent.pt expected torch.Tensor, got {type(sl)!r}")
@@ -1398,7 +1397,6 @@ class AceStepV15Backend:
                 tok_kwargs = {
                     "pretrained_model_name_or_path": repo_id,
                     "revision": self._config.revision if repo_id == str(self._config.repo_id) else None,
-                    "cache_dir": self._config.cache_dir,
                     "trust_remote_code": False,
                     "local_files_only": local_files_only,
                 }
@@ -1409,7 +1407,6 @@ class AceStepV15Backend:
                 model_kwargs = {
                     "pretrained_model_name_or_path": repo_id,
                     "revision": self._config.revision if repo_id == str(self._config.repo_id) else None,
-                    "cache_dir": self._config.cache_dir,
                     "local_files_only": local_files_only,
                 }
                 if subfolder:

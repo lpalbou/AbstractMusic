@@ -6,6 +6,9 @@ AbstractMusic keeps known model metadata in
 This list is used for capability discovery and planning. It is not a runtime router and must not
 silently change the configured model.
 
+Runtime model selection accepts Hugging Face repo ids only. AbstractMusic does not accept local
+checkpoint directory paths or custom Hugging Face cache directories.
+
 ## Current Reviewed Models
 
 - `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the default `acestep` /

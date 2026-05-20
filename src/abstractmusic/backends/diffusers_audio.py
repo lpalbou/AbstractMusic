@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
 from ..errors import OptionalDependencyMissingError
+from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 
@@ -152,6 +153,9 @@ class DiffusersAudioBackendConfig:
     # "Output channels > 65536 not supported at the MPS device."
     # We retry on CPU with an explicit warning. #FALLBACK : MPS limitation
     auto_retry_cpu_on_mps_error: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
 
 
 class DiffusersAudioBackend:

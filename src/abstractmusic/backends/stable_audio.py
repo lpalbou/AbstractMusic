@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Sequence
 
 from ..errors import OptionalDependencyMissingError
+from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities, ProviderModelInfo
 from .diffusers_audio import _encode_wav_bytes, _resolve_device
 
@@ -239,6 +240,9 @@ class StableAudioBackendConfig:
     guidance_scale: float = 1.0
     sampler_type: str = "pingpong"
     auto_retry_cpu_on_mps_error: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
 
 
 class StableAudioBackend:

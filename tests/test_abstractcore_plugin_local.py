@@ -127,3 +127,17 @@ def test_capability_requires_model_id_when_not_injected():
     cap = factory(owner)
     with pytest.raises(AbstractMusicError):
         cap.t2m("hello", format="wav")
+
+
+@pytest.mark.unit
+def test_capability_rejects_local_model_path():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:diffusers")
+
+    owner = _DummyOwner({"music_backend": "diffusers", "music_model_id": "./local-model"})
+    cap = factory(owner)
+    with pytest.raises(AbstractMusicError, match="local filesystem path"):
+        cap.t2m("hello", format="wav")

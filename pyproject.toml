@@ -45,7 +45,6 @@ acestep = [
   "accelerate>=0.0",
   "safetensors>=0.0",
   "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
 ]
 acestep-v15 = [
   "numpy>=1.24.0",

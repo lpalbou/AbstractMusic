@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 
 from ..artifacts import RuntimeArtifactStoreAdapter
 from ..errors import AbstractMusicError, CapabilityNotSupportedError
+from ..huggingface import require_hf_repo_id
 from ..music_manager import MusicManager
 
 
@@ -54,7 +55,12 @@ def _owner_cfg_any(owner: Any, key: str) -> Any:
 
 def _require_model_id(owner: Any) -> str:
     model_id = _owner_cfg(owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID")
-    return str(model_id) if model_id else ""
+    if not model_id:
+        return ""
+    try:
+        return require_hf_repo_id(str(model_id), field_name="music_model_id / ABSTRACTMUSIC_MODEL_ID")
+    except ValueError as e:
+        raise AbstractMusicError(str(e)) from e
 
 
 class _AbstractMusicCapabilityBase:
@@ -273,7 +279,6 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
         device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
         dtype = _owner_cfg(self._owner, "music_torch_dtype") or _env("ABSTRACTMUSIC_TORCH_DTYPE", "auto")
         revision = _owner_cfg(self._owner, "music_revision") or _env("ABSTRACTMUSIC_REVISION")
-        cache_dir = _owner_cfg(self._owner, "music_cache_dir") or _env("ABSTRACTMUSIC_CACHE_DIR")
 
         from ..backends.acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 
@@ -285,8 +290,6 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
         }
         if isinstance(revision, str) and revision.strip():
             cfg_kwargs["revision"] = str(revision).strip()
-        if isinstance(cache_dir, str) and cache_dir.strip():
-            cfg_kwargs["cache_dir"] = str(cache_dir).strip()
         cfg = AceStepV15BackendConfig(**cfg_kwargs)
         self._backend = AceStepV15Backend(config=cfg)
         return self._backend
@@ -301,7 +304,7 @@ def register(registry: Any) -> None:
         priority=30,
         description="AbstractMusic ACE-Step Diffusers XL Turbo path (in-process, package-owned adapter).",
         config_hint="Optional: set music_model_id to a HF repo id "
-        "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). "
+        "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). Local filesystem paths are rejected. "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
     )
 
@@ -311,6 +314,7 @@ def register(registry: Any) -> None:
         priority=5,
         description="AbstractMusic standalone ACE-Step v1.5 path (explicit quality-limited backend).",
         config_hint="Optional: set music_model_id to a HF repo id (default: 'ACE-Step/Ace-Step1.5'). "
+        "Local filesystem paths are rejected. "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
     )
 
@@ -320,5 +324,6 @@ def register(registry: Any) -> None:
         priority=0,
         description="AbstractMusic local generation via Diffusers audio pipeline.",
         config_hint="Set music_model_id (or ABSTRACTMUSIC_MODEL_ID) to a Diffusers audio model id "
-        "(checkpoint license varies). Optionally set music_device='auto'/'cuda'/'mps'/'cpu'.",
+        "(checkpoint license varies). Local filesystem paths are rejected. "
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu'.",
     )

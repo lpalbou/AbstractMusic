@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .huggingface import require_hf_repo_id
+
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
@@ -110,6 +112,13 @@ def _parse_backend_arg(value: str) -> str:
         raise argparse.ArgumentTypeError(str(e)) from e
 
 
+def _parse_model_id_arg(value: str) -> str:
+    try:
+        return require_hf_repo_id(value, field_name="--model-id")
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
 def _copy_namespace(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(**vars(args))
 
@@ -166,8 +175,10 @@ def build_parser() -> argparse.ArgumentParser:
         )
         parser.add_argument(
             "--model-id",
+            type=_parse_model_id_arg,
             default=_env("ABSTRACTMUSIC_MODEL_ID") if use_defaults else default_suppress,
-            help="Model repo id (or set $ABSTRACTMUSIC_MODEL_ID). "
+            help="Hugging Face model repo id (or set $ABSTRACTMUSIC_MODEL_ID). "
+            "Local checkpoint paths are rejected; weights must come from the default Hugging Face cache. "
             "Diffusers: any Diffusers audio checkpoint id (license varies). "
             "ACE-Step: ACE-Step/Ace-Step1.5. ACE-Step Diffusers: ACE-Step/acestep-v15-xl-turbo-diffusers. "
             "MusicGen: facebook/musicgen-small. Stable Audio: stabilityai/stable-audio-open-small.",
@@ -176,11 +187,6 @@ def build_parser() -> argparse.ArgumentParser:
             "--revision",
             default=_env("ABSTRACTMUSIC_REVISION") if use_defaults else default_suppress,
             help="Optional Hugging Face revision (commit/tag).",
-        )
-        parser.add_argument(
-            "--cache-dir",
-            default=_env("ABSTRACTMUSIC_CACHE_DIR") if use_defaults else default_suppress,
-            help="Optional Hugging Face cache directory.",
         )
         parser.add_argument(
             "--device",
@@ -403,6 +409,11 @@ def _make_manager_from_args(args: argparse.Namespace):
 
     backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     model_id = str(getattr(args, "model_id", "") or "").strip()
+    if model_id:
+        try:
+            model_id = require_hf_repo_id(model_id, field_name="--model-id / ABSTRACTMUSIC_MODEL_ID")
+        except ValueError as e:
+            raise SystemExit(str(e)) from e
 
     if backend_kind == "acestep-diffusers":
         from .backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
@@ -518,10 +529,6 @@ def _make_manager_from_args(args: argparse.Namespace):
         rev = str(rev).strip() if isinstance(rev, str) and rev.strip() else None
         if rev is not None:
             cfg_kwargs["revision"] = rev
-        cache_dir = getattr(args, "cache_dir", None)
-        cache_dir = str(cache_dir).strip() if isinstance(cache_dir, str) and cache_dir.strip() else None
-        if cache_dir is not None:
-            cfg_kwargs["cache_dir"] = cache_dir
         cfg = AceStepV15BackendConfig(**cfg_kwargs)
         backend = AceStepV15Backend(config=cfg)
         return MusicManager(backend=backend)
@@ -631,7 +638,10 @@ class MusicREPL(cmd.Cmd):
     def _get_manager(self):
         if self._manager is None or self._manager_dirty:
             _configure_mps_env(self.args)
-            self._manager = _make_manager_from_args(self.args)
+            try:
+                self._manager = _make_manager_from_args(self.args)
+            except SystemExit as e:
+                raise ValueError(str(e)) from e
             self._manager_dirty = False
         return self._manager
 
@@ -829,6 +839,11 @@ class MusicREPL(cmd.Cmd):
             setattr(self.args, "model_id", None)
             print("model: default")
         else:
+            try:
+                value = require_hf_repo_id(value, field_name="model")
+            except ValueError as e:
+                print(f"ERROR: {e}", file=sys.stderr)
+                return
             setattr(self.args, "model_id", value)
             print(f"model: {value}")
         self._mark_dirty()

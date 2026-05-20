@@ -55,6 +55,22 @@ def test_cli_rejects_removed_acestep_source_dir():
 
 
 @pytest.mark.unit
+def test_cli_rejects_local_model_path():
+    from abstractmusic.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--model-id", "./local-model", "repl"])
+
+
+@pytest.mark.unit
+def test_cli_rejects_removed_cache_dir():
+    from abstractmusic.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--cache-dir", "/tmp/hf-cache", "repl"])
+
+
+@pytest.mark.unit
 def test_cli_accepts_vocal_language_hint():
     from abstractmusic.cli import build_parser
 

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence
 
 from ..errors import OptionalDependencyMissingError
+from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities, ProviderModelInfo
 from .diffusers_audio import _encode_wav_bytes, _resolve_device, _resolve_dtype
 
@@ -81,6 +82,9 @@ class MusicGenBackendConfig:
     temperature: Optional[float] = None
     top_k: Optional[int] = None
     top_p: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
 
 
 class MusicGenBackend:

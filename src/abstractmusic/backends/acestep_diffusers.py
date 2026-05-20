@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from ..audio_analysis import inspect_wav_bytes
 from ..errors import OptionalDependencyMissingError
+from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 
@@ -169,6 +170,9 @@ class AceStepDiffusersBackendConfig:
     shift: Optional[float] = 3.0
     enable_vae_tiling: bool = True
     auto_retry_cpu_on_mps_error: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
 
 
 class AceStepDiffusersBackend:
