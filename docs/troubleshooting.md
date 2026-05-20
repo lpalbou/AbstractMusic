@@ -3,7 +3,20 @@
 Use this page for user-visible setup, runtime, and release failures. For model support and license
 boundaries, see [models.md](models.md). For the public API, see [api.md](api.md).
 
-## `abstractmusic` imports but generation fails with missing packages
+## Default remote generation fails with a missing API key
+
+The base install uses the ACE Music remote backend by default. Set `ACEMUSIC_API_KEY`, or pass the
+key through host configuration:
+
+```bash
+export ACEMUSIC_API_KEY=...
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+```
+
+If you use a compatible proxy or self-hosted endpoint, set `ACEMUSIC_BASE_URL` or pass
+`--acemusic-base-url`.
+
+## Local generation fails with missing packages
 
 The base package is import-light and does not install heavy model runtimes. Install the backend
 extra you plan to use:
@@ -26,7 +39,7 @@ abstractmusic --backend acestep t2m "short ambient synth loop" --out out.wav --d
 
 ## ACE-Step downloads or cache access fails
 
-The default `acestep` backend uses Hugging Face model weights. It does not accept local ACE-Step
+The local `acestep` backend uses Hugging Face model weights. It does not accept local ACE-Step
 source-tree paths or checkpoint-directory overrides. Confirm the model is accessible from the
 standard Hugging Face cache:
 
@@ -41,7 +54,7 @@ If the machine is offline, populate the Hugging Face cache before running genera
 
 ## Apple MPS returns non-finite audio or falls back to CPU
 
-On Apple hardware, the default ACE-Step Diffusers backend tries PyTorch MPS first. The automatic
+On Apple hardware, the local ACE-Step Diffusers backend tries PyTorch MPS first. The automatic
 dtype policy avoids fp16 denoising on MPS because it can overflow during transformer inference on
 some local stacks. AbstractMusic prefers MPS bfloat16 when supported, then MPS float32, and only
 falls back to CPU float32 if MPS still returns invalid audio.

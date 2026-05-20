@@ -6,13 +6,17 @@ AbstractMusic keeps known model metadata in
 This list is used for capability discovery and planning. It is not a runtime router and must not
 silently change the configured model.
 
-Runtime model selection accepts Hugging Face repo ids only. AbstractMusic does not accept local
-checkpoint directory paths or custom Hugging Face cache directories.
+Local runtime model selection accepts Hugging Face repo ids only. AbstractMusic does not accept
+local checkpoint directory paths or custom Hugging Face cache directories. Remote providers use
+provider-specific model names when exposed by the service.
 
 ## Current Reviewed Models
 
-- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the default `acestep` /
-  `acestep-diffusers` backend, MIT, text-to-music with lyrics. This path uses Diffusers
+- `acemusic/ace-step-api`: recommended lightweight remote backend through `acemusic`, text-to-music
+  with optional lyrics. It uses the configured ACE Music hosted API and requires an API key;
+  licensing and commercial terms are provider-side.
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the local `acestep` /
+  `acestep-diffusers` local backend, MIT, text-to-music with lyrics. This path uses Diffusers
   AceStepPipeline, Hugging Face checkpoint files, and package-owned orchestration without an
   external ACE-Step source tree or package. On Apple MPS, AbstractMusic avoids fp16 denoising
   overflow by preferring MPS bfloat16 when supported and MPS float32 otherwise; CPU float32 remains

@@ -2,6 +2,22 @@
 
 All notable changes to AbstractMusic will be documented in this file.
 
+## [0.1.4] - 2026-05-21
+
+### Added
+
+- Added a stdlib-only `acemusic` remote backend for ACE Music-compatible hosted text-to-music APIs.
+- Added `remote` as a no-op optional extra and expanded `all-apple` / `all-gpu` profiles to include
+  supported local runtime dependency groups.
+
+### Changed
+
+- Changed the CLI and AbstractCore plugin default backend to lightweight remote generation
+  (`acemusic`) so `pip install abstractmusic` remains remote-capable without local ML libraries.
+- Standardized ACE Music remote configuration on `ACEMUSIC_API_KEY` and `ACEMUSIC_BASE_URL`.
+- Documented that Suno is not included as a default backend until an official stable API contract is
+  available; OpenAI and Anthropic are not treated as music-generation providers.
+
 ## [0.1.3] - 2026-05-21
 
 ### Added

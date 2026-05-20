@@ -41,10 +41,12 @@ packaged model metadata and must not load generation backends.
 ## Dependency Boundary
 
 Heavy runtime stacks must be imported lazily. The base package stays focused on contracts, manager
-code, artifact helpers, docs, CLI/plugin shells, and provider metadata. Local model engines live
-behind explicit extras such as `acestep`, `acestep-v15`,
-`acestep-diffusers`, `diffusers`, `apple`, and `gpu`. The `acestep` extra installs the default
-ACE-Step Diffusers provider; `acestep-v15` is the explicit quality-limited vendored v1.5 backend.
+code, artifact helpers, docs, CLI/plugin shells, provider metadata, and stdlib-only remote clients.
+The base default is `acemusic`, which calls a configured hosted ACE Music-compatible API and does
+not install local ML libraries. Local model engines live behind explicit extras such as `acestep`,
+`acestep-v15`, `acestep-diffusers`, `diffusers`, `apple`, `gpu`, `all-apple`, and `all-gpu`.
+The `acestep` extra installs the supported local ACE-Step Diffusers provider; `acestep-v15` is the
+explicit quality-limited vendored v1.5 backend.
 
 ## Precision Policy
 
@@ -52,5 +54,5 @@ When official 8-bit model artifacts exist, prefer them for local providers. If n
 artifact exists, prefer the smallest official 16-bit path before larger precision formats. Do not
 invent unofficial quantized checkpoints as defaults.
 
-On Apple hardware, prefer PyTorch MPS for standalone providers when supported. For ACE-Step, the
-default `acestep` backend has an explicit CPU float32 fallback when MPS returns non-finite audio.
+On Apple hardware, prefer PyTorch MPS for standalone providers when supported. For local ACE-Step,
+the `acestep` backend has an explicit CPU float32 fallback when MPS returns non-finite audio.

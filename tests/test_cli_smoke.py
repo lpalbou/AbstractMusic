@@ -27,6 +27,42 @@ def test_cli_allows_common_flags_after_subcommand():
 
 
 @pytest.mark.unit
+def test_cli_default_backend_is_light_remote_acemusic(monkeypatch):
+    from abstractmusic.cli import build_parser
+
+    monkeypatch.delenv("ABSTRACTMUSIC_BACKEND", raising=False)
+    monkeypatch.delenv("ACEMUSIC_BASE_URL", raising=False)
+
+    args = build_parser().parse_args(["t2m", "sci fi music", "--duration", "10"])
+
+    assert args.backend == "acemusic"
+    assert args.format == "wav"
+    assert args.acemusic_base_url == "https://api.acemusic.ai"
+
+
+@pytest.mark.unit
+def test_cli_accepts_acemusic_remote_aliases_and_formats():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--engine",
+            "ace-music",
+            "t2m",
+            "sci fi music",
+            "--format",
+            "mp3",
+            "--acemusic-base-url",
+            "https://api.example.test",
+        ]
+    )
+
+    assert args.backend == "acemusic"
+    assert args.format == "mp3"
+    assert args.acemusic_base_url == "https://api.example.test"
+
+
+@pytest.mark.unit
 def test_cli_accepts_explicit_standalone_acestep_v15_backend():
     from abstractmusic.cli import build_parser
 
@@ -210,6 +246,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     repl.onecmd("/instrumental on")
     repl.onecmd("/print-plan on")
     repl.onecmd("/text-planner off")
+    repl.onecmd("/format flac")
     repl.onecmd("/params")
 
     assert repl.args.backend == "acestep-diffusers"
@@ -228,6 +265,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert repl.args.instrumental is True
     assert repl.args.print_plan is True
     assert repl.args.text_planner == "off"
+    assert repl.args.format == "flac"
     assert repl._manager is None
     out = capsys.readouterr().out
     assert "engine: acestep-diffusers" in out
@@ -240,6 +278,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert "instrumental: on" in out
     assert "print-plan: on" in out
     assert "text_planner: off" in out
+    assert "format: flac" in out
 
 
 @pytest.mark.unit

@@ -30,6 +30,21 @@ class _CaptureBackend:
         return GeneratedAsset(data=b"planned-wav", mime_type="audio/wav", metadata={"backend": "capture"})
 
 
+class _RemoteCaptureBackend(_CaptureBackend):
+    def get_capabilities(self):
+        return MusicBackendCapabilities(
+            supported_tasks=("text_to_music",),
+            output_formats=("wav", "mp3", "flac"),
+            supports_lyrics=True,
+            supports_guidance_scale=True,
+            model_id="remote-model",
+        )
+
+    def generate_audio(self, request):
+        self.last_request = request
+        return GeneratedAsset(data=b"remote-audio", mime_type=f"audio/{request.format}", metadata={"backend": "remote"})
+
+
 class _DummyOwner:
     def __init__(self, config):
         self.config = dict(config)
@@ -183,14 +198,16 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 3
+    assert len(reg.registrations) == 4
     backend_ids = {r["backend_id"] for r in reg.registrations}
     assert backend_ids == {
+        "abstractmusic:acemusic",
         "abstractmusic:acestep-v15",
         "abstractmusic:acestep-diffusers",
         "abstractmusic:diffusers",
     }
     priorities = {r["backend_id"]: r["priority"] for r in reg.registrations}
+    assert priorities["abstractmusic:acemusic"] > priorities["abstractmusic:acestep-diffusers"]
     assert priorities["abstractmusic:acestep-diffusers"] > priorities["abstractmusic:acestep-v15"]
     assert all(callable(r["factory"]) for r in reg.registrations)
 
@@ -214,6 +231,49 @@ def test_capability_t2m_returns_bytes_without_artifact_store():
     cap = factory(owner)
     out = cap.t2m("hello", format="wav")
     assert out == b"wav-bytes"
+
+
+@pytest.mark.unit
+def test_acemusic_capability_accepts_remote_formats_with_injected_backend():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acemusic")
+    backend = _RemoteCaptureBackend()
+
+    owner = _DummyOwner({"music_backend_instance": backend})
+    cap = factory(owner)
+    out = cap.t2m("hello", format="mp3", duration_s=20)
+
+    assert out == b"remote-audio"
+    assert backend.last_request.format == "mp3"
+    assert backend.last_request.duration_s == 20
+
+
+@pytest.mark.unit
+def test_acemusic_capability_configures_remote_backend_without_hf_model_validation():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acemusic")
+
+    owner = _DummyOwner(
+        {
+            "music_acemusic_api_key": "secret-token",
+            "music_acemusic_base_url": "https://api.example.test",
+            "music_acemusic_model": "provider-model-name",
+            "music_acemusic_timeout_s": 12,
+        }
+    )
+    cap = factory(owner)
+    backend = cap._get_backend()
+
+    assert backend.config.api_key == "secret-token"
+    assert backend.config.base_url == "https://api.example.test"
+    assert backend.config.model == "provider-model-name"
+    assert backend.config.timeout_s == 12
 
 
 @pytest.mark.unit
@@ -470,8 +530,13 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
 
     providers = cap.available_providers(task="t2m")
     provider_ids = {item["provider_id"] for item in providers}
+    assert "ace-music" in provider_ids
     assert "ace-step" in provider_ids
     assert all(item["capability"] == "music" for item in providers)
+
+    remote_provider = next(item for item in providers if item["provider_id"] == "ace-music")
+    assert remote_provider["remote"] is True
+    assert remote_provider["local"] is False
 
     models = cap.list_models(task="text_to_music", provider="ACE-Step")
     model_ids = {item["model_id"] for item in models}
@@ -486,6 +551,12 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
     assert operations and operations[0]["task"] == "text_to_music"
     assert operations[0]["artifact_output"] is True
     assert operations[0]["parameter_schema"]["required"] == ["prompt"]
+    assert operations[0]["metadata"]["formats"] == ["wav"]
+
+    remote_factory = _get_factory(reg, "abstractmusic:acemusic")
+    remote_cap = remote_factory(_DummyOwner({}))
+    remote_ops = remote_cap.list_operations(task="text_to_music")
+    assert remote_ops[0]["metadata"]["formats"] == ["wav", "mp3", "flac"]
 
     catalog = cap.capability_catalog(task="text_to_music")
     assert catalog["capability"] == "music"

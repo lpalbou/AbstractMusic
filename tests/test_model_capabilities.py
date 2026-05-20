@@ -12,6 +12,7 @@ def test_music_model_registry_contains_reviewed_models():
     reg = MusicModelCapabilitiesRegistry()
     ids = {m.id for m in reg.list_models()}
 
+    assert "acemusic/ace-step-api" in ids
     assert "ACE-Step/Ace-Step1.5" in ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in ids
     assert "facebook/musicgen-small" in ids
@@ -20,6 +21,22 @@ def test_music_model_registry_contains_reviewed_models():
     assert "m-a-p/YuE-s1-7B-anneal-en-cot" in ids
     assert "LH-Tech-AI/TinyMozart_v2_85M" in ids
     assert "Dalision/Omni2Sound" in ids
+
+
+@pytest.mark.unit
+def test_acemusic_registry_metadata_tracks_light_remote_default():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("acemusic/ace-step-api")
+
+    assert spec.recommended is True
+    assert spec.backend_kinds[0] == "acemusic"
+    assert spec.dependency_extra == "remote"
+    assert spec.supports_lyrics is True
+    assert spec.supports_guidance_scale is True
+    assert set(spec.output_formats) == {"wav", "mp3", "flac"}
+    assert spec.raw["remote"] is True
+    assert spec.raw["local"] is False
 
 
 @pytest.mark.unit
@@ -109,7 +126,7 @@ def test_acestep_diffusers_registry_tracks_default_route():
     assert spec.status == "validated-mps-bf16-cpu-fallback"
     assert spec.backend_kinds[0] == "acestep-diffusers"
     assert spec.dependency_extra == "acestep-diffusers"
-    assert "Default `acestep` route" in spec.notes
+    assert "Local `acestep` route" in spec.notes
 
 
 @pytest.mark.unit
@@ -158,9 +175,12 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
         "acestep-v15",
         "acestep-diffusers",
         "diffusers",
+        "remote",
         "local",
         "apple",
         "gpu",
+        "all-apple",
+        "all-gpu",
         "musicgen",
         "stable-audio",
         "yue",
@@ -169,3 +189,7 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
     assert any(str(dep).startswith("torch") for dep in extras["acestep"])
     assert any(str(dep).startswith("mlx-lm") for dep in extras["apple"])
     assert any(str(dep).startswith("diffusers") for dep in extras["acestep-diffusers"])
+    assert extras["remote"] == []
+    assert any(str(dep).startswith("torchaudio") for dep in extras["all-apple"])
+    assert any(str(dep).startswith("alias-free-torch") for dep in extras["all-gpu"])
+    assert any(str(dep).startswith("vector-quantize-pytorch") for dep in extras["all-gpu"])

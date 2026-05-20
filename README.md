@@ -1,6 +1,6 @@
 # AbstractMusic
 
-`abstractmusic` is a local-first **text-to-music / text-to-audio** library designed to plug into **AbstractCore** as an optional capability plugin.
+`abstractmusic` is a model-agnostic **text-to-music / text-to-audio** library designed to plug into **AbstractCore** as an optional capability plugin. The base install is lightweight and remote-capable; local model runtimes live behind explicit extras.
 
 ## Install
 
@@ -8,22 +8,46 @@
 pip install abstractmusic
 ```
 
-The base package is import-light: contracts, manager, CLI shell, plugin wiring, docs, and model
-metadata. Install a local runtime extra before generating:
+The base package is import-light: contracts, manager, CLI shell, plugin wiring, docs, model
+metadata, and a stdlib-only ACE Music remote backend. It does not install Torch, Diffusers,
+Transformers, or NumPy.
+
+Use the base install with a remote API key:
 
 ```bash
-pip install "abstractmusic[acestep]"  # default ACE-Step Diffusers path
+export ACEMUSIC_API_KEY=...
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+```
+
+Install a local runtime profile when you want in-process model generation:
+
+```bash
+pip install "abstractmusic[remote]"  # no-op alias; base install already contains remote clients
+pip install "abstractmusic[acestep]"  # local ACE-Step Diffusers path
 pip install "abstractmusic[acestep-v15]"  # explicit quality-limited ACE-Step v1.5 path
 pip install "abstractmusic[acestep-diffusers]"
 pip install "abstractmusic[apple]"
 pip install "abstractmusic[gpu]"
-pip install "abstractmusic[all-apple]"
-pip install "abstractmusic[all-gpu]"
+pip install "abstractmusic[all-apple]"  # all supported Apple/MPS local runtime deps
+pip install "abstractmusic[all-gpu]"  # all supported CUDA/ROCm-style local runtime deps
 ```
 
 The `acestep` profile installs the package-owned ACE-Step route. On Apple MPS, AbstractMusic
 prefers MPS bfloat16 when the local PyTorch stack supports it, then MPS float32, and only falls
 back to CPU float32 if MPS still returns invalid audio.
+
+## Quickstart (remote generation)
+
+```python
+from abstractmusic import MusicManager
+from abstractmusic.backends import AceMusicBackend, AceMusicBackendConfig
+
+backend = AceMusicBackend(config=AceMusicBackendConfig(api_key="..."))
+
+mm = MusicManager(backend=backend)
+wav_bytes = mm.t2m("uplifting synthwave with punchy drums", duration_s=30.0)
+open("out.wav", "wb").write(wav_bytes)
+```
 
 ## Quickstart (local generation)
 
@@ -59,8 +83,8 @@ llm = create_llm(
     # Any provider/model works here. The LLM does *not* synthesize audio.
     "ollama",
     model="qwen3:4b-instruct",
-    music_backend="acestep",
-    music_model_id="ACE-Step/Ace-Step1.5",
+    music_backend="acemusic",
+    music_acemusic_api_key="...",
 )
 
 wav_bytes = llm.music.t2m("ambient lo-fi study music", format="wav", duration_s=10.0)
@@ -69,10 +93,13 @@ open("out.wav", "wb").write(wav_bytes)
 
 ## Notes
 
-- Audio output baseline is **WAV** (no external codecs required).
-- Model weights are resolved through the default Hugging Face cache on first use (same workflow as Diffusers-based vision).
-- `model_id` selectors must be Hugging Face repo ids. Local checkpoint directories and custom cache-dir overrides are intentionally not supported.
-- The default ACE-Step path is `acestep` / `acestep-diffusers`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
+- The base default backend is `acemusic`, a remote ACE Music API adapter. It requires
+  `ACEMUSIC_API_KEY`. Use `ACEMUSIC_BASE_URL` only when targeting a compatible custom endpoint.
+- Audio output baseline is **WAV** (no external codecs required). The remote ACE Music backend can
+  also request MP3 or FLAC.
+- Local model weights are resolved through the default Hugging Face cache on first use (same workflow as Diffusers-based vision).
+- Local `model_id` selectors must be Hugging Face repo ids. Local checkpoint directories and custom cache-dir overrides are intentionally not supported.
+- The local ACE-Step path is `acestep` / `acestep-diffusers`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
 - `acestep-v15` remains explicit and quality-limited after repeated-loop validation failures.
 - `musicgen` and `stable-audio` are optional small-model comparison backends; both are non-commercial and not default providers.
 - For Stable Audio Open Small, install `stable-audio-tools` with `--no-deps` after `abstractmusic[stable-audio]`; AbstractMusic avoids the upstream package's UI/training dependency chain and owns the minimal inference loop.
@@ -87,7 +114,12 @@ open("out.wav", "wb").write(wav_bytes)
 After installation, `abstractmusic` provides a small CLI:
 
 ```bash
-# One-shot generation
+# One-shot remote generation (default backend)
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+abstractmusic --backend acemusic t2m "heroic fantasy epic music" --out out.wav --duration 30
+abstractmusic --backend acemusic t2m "upbeat pop song" --lyrics auto --format mp3 --out out.mp3 --duration 30
+
+# One-shot local generation
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
@@ -99,6 +131,7 @@ abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt
 abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
 
 # Interactive REPL
+abstractmusic repl
 abstractmusic --engine xl repl
 abstractmusic --engine musicgen repl
 ```
@@ -153,7 +186,9 @@ metadata. These methods are import-light and must not instantiate model runtimes
 
 ## Licensing note
 
-- The default backend example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.
+- The default base backend calls the configured ACE Music remote API. Check the remote provider's
+  terms for generated-output rights and provider-side model licensing.
+- The local ACE-Step example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.
 - The vendored standalone ACE-Step model code files carry **Apache-2.0** headers (both permissive).
 - `facebook/musicgen-small` is exposed through `--backend musicgen`; its model weights are **CC BY-NC 4.0**, so it is a non-commercial validation backend.
 - `stabilityai/stable-audio-open-small` is exposed through `--backend stable-audio`; it is gated on Hugging Face and uses the **Stability AI Community License**.
@@ -174,7 +209,7 @@ publisher metadata for `release.yml` and GitHub Pages source as GitHub Actions.
 
 ### macOS / Apple Silicon note (MLX/MPS)
 
-On Apple systems, the default `acestep` / `acestep-diffusers` path tries PyTorch MPS first. ACE-Step
+On Apple systems, the local `acestep` / `acestep-diffusers` path tries PyTorch MPS first. ACE-Step
 Diffusers fp16 can overflow during transformer denoising on MPS, so the automatic dtype prefers MPS
 bfloat16 when supported and MPS float32 otherwise. CPU float32 is only the final fallback when MPS
 still returns non-finite audio.

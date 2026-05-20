@@ -2,10 +2,11 @@
 
 ## Current status
 
-AbstractMusic has a thin public manager, a minimal backend protocol, a generic Diffusers audio
-backend, a standalone ACE-Step v1.5 backend, an ACE-Step Diffusers adapter, and an AbstractCore
-capability plugin. The standalone ACE-Step path is the only ACE-Step v1.5 runtime path in the
-package and must not call a local ACE-Step source checkout or external ACE-Step package.
+AbstractMusic has a thin public manager, a minimal backend protocol, a stdlib-only ACE Music
+remote backend, a generic Diffusers audio backend, a standalone ACE-Step v1.5 backend, an ACE-Step
+Diffusers adapter, and an AbstractCore capability plugin. The standalone ACE-Step path is the only
+ACE-Step v1.5 runtime path in the package and must not call a local ACE-Step source checkout or
+external ACE-Step package.
 
 The repository has the baseline docs, hygiene files, import-light packaging, a model registry, a
 CLI REPL, and a real smoke validation harness. Previous external-runtime experiments are no longer
@@ -13,10 +14,10 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 
 ## Status counts
 
-- Planned: 9
-- Proposed: 2
-- Completed: 4
-- Deprecated: 1
+- Planned: 8
+- Proposed: 1
+- Completed: 5
+- Deprecated: 2
 - Recurrent: 2
 
 ## Priority bands
@@ -35,10 +36,9 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 3. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
 4. Complete `planned/030_acestep_diffusers_xl_provider.md`.
 5. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
-6. Complete `planned/050_dependency_profiles_and_optional_providers.md`.
-7. Complete `planned/055_heartmula_optional_provider.md`.
-8. Complete `planned/060_yue_optional_provider.md`.
-9. Complete `planned/075_stable_audio_open_small_validation.md`.
+6. Complete `planned/055_heartmula_optional_provider.md`.
+7. Complete `planned/060_yue_optional_provider.md`.
+8. Complete `planned/075_stable_audio_open_small_validation.md`.
 
 ## Planned work
 
@@ -50,7 +50,6 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | P0 | `planned/065_acestep_repetition_quality_gate.md` | Add a spectral novelty gate so repetitive harmonic loops are not treated as acceptable music. |
 | P1 | `planned/070_musicgen_small_optional_provider.md` | Add a small non-commercial MusicGen baseline provider for real quality comparison. |
 | P2 | `planned/075_stable_audio_open_small_validation.md` | Validate the gated Stable Audio Open Small short-clip provider through AbstractMusic. |
-| P2 | `planned/050_dependency_profiles_and_optional_providers.md` | Move heavy model stacks behind extras and document TinyMozart/Omni2Sound boundaries. |
 | P2 | `planned/055_heartmula_optional_provider.md` | Evaluate and implement HeartMuLa as an optional lyrics/tags music provider if dependency and runtime boundaries are acceptable. |
 | P2 | `planned/060_yue_optional_provider.md` | Evaluate YuE as an optional multi-stage lyrics-to-music provider without claiming partial token generation is audio. |
 
@@ -62,12 +61,12 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-15 | `completed/010_repo_hygiene_docs_and_packaging.md` | Added repo/docs baseline, license/security/contribution files, ignore rules, and cleaned generated tracked artifacts. |
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
+| 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
 
 ## Proposed work
 
 | Item | Promotion criteria |
 | --- | --- |
-| `proposed/2026-05-08_music_install_profile_boundary.md` | Promote when the dependency-profile split becomes implementation work. |
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 
 ## Deprecated work
@@ -75,6 +74,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | Deprecated | Item | Reason |
 | --- | --- | --- |
 | 2026-05-20 | `deprecated/0025_external_acestep_runtime_wrapper.md` | Removed the out-of-package ACE-Step runtime wrapper path; standalone package code is required. |
+| 2026-05-21 | `deprecated/0081_music_install_profile_boundary.md` | Superseded by completed dependency-profile implementation. |
 
 ## Completion process
 
@@ -89,9 +89,6 @@ When a planned item is complete:
 ## Planning notes
 
 - ACE-Step v1.5 must use the standalone `acestep` / `acestep-v15` package backend.
-- Backlog hygiene note: `proposed/2026-05-08_music_install_profile_boundary.md` predates the
-  current four-digit global ID filename convention and should be renamed during the next dedicated
-  backlog hygiene pass.
 - Previous external-runtime smoke artifacts remain useful as references, but they do not prove the
   standalone package path works.
 - On Apple hardware, prefer PyTorch MPS for the standalone ACE-Step backend with clear CPU

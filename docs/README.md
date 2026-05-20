@@ -1,7 +1,8 @@
 # AbstractMusic Documentation
 
-AbstractMusic provides model-agnostic local music/audio generation primitives for the
-AbstractFramework ecosystem.
+AbstractMusic provides model-agnostic remote and local music/audio generation primitives for the
+AbstractFramework ecosystem. The base install stays lightweight; platform extras add local model
+runtimes for Apple or GPU machines.
 
 Core docs:
 

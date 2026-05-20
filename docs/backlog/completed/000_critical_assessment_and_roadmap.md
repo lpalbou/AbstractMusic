@@ -78,7 +78,7 @@ implementing them.
 - `docs/backlog/planned/020_music_abstraction_and_capability_registry.md`
 - `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
 - `docs/backlog/completed/040_real_generation_validation_matrix.md`
-- `docs/backlog/planned/050_dependency_profiles_and_optional_providers.md`
+- `docs/backlog/completed/050_dependency_profiles_and_optional_providers.md`
 
 ## Expected outcomes
 

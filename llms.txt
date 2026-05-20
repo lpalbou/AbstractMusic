@@ -1,9 +1,9 @@
 # AbstractMusic
 
-> Model-agnostic local music and audio generation abstractions for the Abstract ecosystem.
+> Model-agnostic remote and local music and audio generation abstractions for the Abstract ecosystem.
 
-Use this index to find the canonical docs for installing AbstractMusic, selecting local generation
-backends, using the CLI/API, integrating with AbstractCore, and releasing the package.
+Use this index to find the canonical docs for installing AbstractMusic, selecting remote or local
+generation backends, using the CLI/API, integrating with AbstractCore, and releasing the package.
 
 ## Core Docs
 

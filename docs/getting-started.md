@@ -6,12 +6,23 @@
 pip install abstractmusic
 ```
 
-Install a local runtime extra before generation:
+The base package includes the stdlib-only ACE Music remote backend and no local ML runtime stack.
+Set a remote API key before using the default CLI backend:
 
 ```bash
-pip install "abstractmusic[acestep]"  # default ACE-Step Diffusers path
+export ACEMUSIC_API_KEY=...
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+```
+
+Install a local runtime profile when you want in-process generation:
+
+```bash
+pip install "abstractmusic[remote]"  # no-op alias; base install already supports remote clients
+pip install "abstractmusic[acestep]"  # local ACE-Step Diffusers path
 pip install "abstractmusic[acestep-v15]"  # explicit quality-limited ACE-Step v1.5 path
 pip install "abstractmusic[acestep-diffusers]"
+pip install "abstractmusic[all-apple]"
+pip install "abstractmusic[all-gpu]"
 pip install "abstractmusic[musicgen]"
 pip install "abstractmusic[stable-audio]"
 pip install --no-deps stable-audio-tools==0.0.19
@@ -26,11 +37,11 @@ minimal inference loop it needs.
 
 ```python
 from abstractmusic import MusicManager
-from abstractmusic.backends import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+from abstractmusic.backends import AceMusicBackend, AceMusicBackendConfig
 
-backend = AceStepDiffusersBackend(config=AceStepDiffusersBackendConfig())
+backend = AceMusicBackend(config=AceMusicBackendConfig(api_key="..."))
 music = MusicManager(backend=backend)
-wav_bytes = music.t2m("uplifting synthwave with punchy drums", duration_s=10.0)
+wav_bytes = music.t2m("uplifting synthwave with punchy drums", duration_s=30.0)
 open("out.wav", "wb").write(wav_bytes)
 ```
 
@@ -39,6 +50,8 @@ Generated WAV files should be treated as artifacts, not source files.
 ## CLI
 
 ```bash
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+abstractmusic --backend acemusic t2m "ambient lo-fi study music" --format mp3 --out out.mp3 --duration 30
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
@@ -62,6 +75,7 @@ preserves raw user text and explicit metadata. Library and AbstractCore plugin c
 Use the REPL to try prompts, engines, and generation parameters without restarting:
 
 ```bash
+abstractmusic repl --engine acemusic --duration 30 --out-dir smoke-artifacts/repl
 abstractmusic repl --engine acestep --duration 10 --out-dir smoke-artifacts/repl
 abstractmusic repl --engine xl --duration 10 --out-dir smoke-artifacts/repl
 abstractmusic repl --engine musicgen --duration 10 --out-dir smoke-artifacts/repl
@@ -90,13 +104,14 @@ bright melodic synth pop loop with steady drums
 /exit
 ```
 
-Engines currently exposed through the unified CLI are `acestep`, `acestep-diffusers`,
-`acestep-v15`, `diffusers`, `musicgen`, and `stable-audio`. `acestep`
+Engines currently exposed through the unified CLI are `acemusic`, `acestep`, `acestep-diffusers`,
+`acestep-v15`, `diffusers`, `musicgen`, and `stable-audio`. `acemusic` is the default lightweight
+remote backend and accepts aliases such as `remote` and `ace-music`. `acestep`
 and `ace` are aliases for the validated `acestep-diffusers` backend. `musicgen` is a small
 non-commercial validation backend. `stable-audio` is gated on Hugging Face and supports short
 clips up to 11 seconds.
 
-The default ACE-Step backend is package-owned: it uses Diffusers AceStepPipeline, Hugging Face
+The local ACE-Step backend is package-owned: it uses Diffusers AceStepPipeline, Hugging Face
 weights, and AbstractMusic orchestration without an external ACE-Step source tree. The explicit
 `acestep-v15` backend uses vendored model code but is quality-limited after repeated-loop
 validation failures.
@@ -126,6 +141,6 @@ python -m pytest -q tests/integration/test_real_generation.py
 
 Generated smoke artifacts are written under `test-artifacts/` by default and are ignored by git.
 
-On Apple hardware, the default `acestep` path uses PyTorch MPS first. Its automatic dtype prefers
+On Apple hardware, the local `acestep` path uses PyTorch MPS first. Its automatic dtype prefers
 MPS bfloat16 when available, MPS float32 otherwise, and CPU float32 only if MPS still returns
 non-finite audio.

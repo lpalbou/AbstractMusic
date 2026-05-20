@@ -8,6 +8,8 @@ from .base_backend import MusicBackend
 
 __all__ = [
     "MusicBackend",
+    "AceMusicBackend",
+    "AceMusicBackendConfig",
     "AceStepV15Backend",
     "AceStepV15BackendConfig",
     "AceStepDiffusersBackend",
@@ -22,6 +24,10 @@ __all__ = [
 
 
 def __getattr__(name: str):
+    if name in {"AceMusicBackend", "AceMusicBackendConfig"}:
+        from .acemusic import AceMusicBackend, AceMusicBackendConfig
+
+        return AceMusicBackend if name == "AceMusicBackend" else AceMusicBackendConfig
     if name in {"AceStepV15Backend", "AceStepV15BackendConfig"}:
         from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 

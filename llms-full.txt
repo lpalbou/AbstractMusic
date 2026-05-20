@@ -1,6 +1,6 @@
 # AbstractMusic
 
-> Model-agnostic local music and audio generation abstractions for the Abstract ecosystem.
+> Model-agnostic remote and local music and audio generation abstractions for the Abstract ecosystem.
 
 This file is an AI-readable companion to the repository docs. It summarizes the current public
 documentation and points to canonical files for details. It is not the source of truth; the linked
@@ -25,12 +25,14 @@ docs and package metadata are canonical.
 
 ## README.md
 
-AbstractMusic is a local-first text-to-music/text-to-audio library for the Abstract ecosystem. The
-base package is import-light and contains contracts, manager code, CLI/plugin wiring, docs, and
-model metadata. Heavy runtime stacks live behind optional extras such as `acestep`,
-`acestep-diffusers`, `acestep-v15`, `musicgen`, and `stable-audio`.
+AbstractMusic is a model-agnostic text-to-music/text-to-audio library for the Abstract ecosystem.
+The base package is import-light and contains contracts, manager code, CLI/plugin wiring, docs,
+model metadata, and a stdlib-only ACE Music remote backend. Heavy local runtime stacks live behind
+optional extras such as `acestep`, `acestep-diffusers`, `acestep-v15`, `musicgen`,
+`stable-audio`, `all-apple`, and `all-gpu`.
 
-The default local ACE-Step route is `acestep` / `acestep-diffusers`. It uses AbstractMusic-owned
+The default backend is `acemusic`, which calls a configured hosted API and requires an API key.
+The local ACE-Step route is `acestep` / `acestep-diffusers`. It uses AbstractMusic-owned
 orchestration around Diffusers `AceStepPipeline` and Hugging Face model weights. It does not use an
 external ACE-Step source tree or package at runtime. The explicit `acestep-v15` backend uses
 vendored model code but remains quality-limited after repeated-loop validation failures.
@@ -38,6 +40,7 @@ vendored model code but remains quality-limited after repeated-loop validation f
 Typical CLI usage:
 
 ```bash
+abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
 ```
@@ -58,8 +61,9 @@ audio.
 
 ## docs/getting-started.md
 
-Install the base package with `pip install abstractmusic`, then install a backend extra before
-generation. The default ACE-Step install profile is:
+Install the base package with `pip install abstractmusic`. Use the default remote backend with an
+API key, or install a local backend extra before in-process generation. The default local ACE-Step
+install profile is:
 
 ```bash
 pip install "abstractmusic[acestep]"
@@ -69,7 +73,7 @@ The `stable-audio` extra intentionally avoids the full upstream `stable-audio-to
 chain. For that backend, install `stable-audio-tools` with `--no-deps`.
 
 The public Python entry point is `MusicManager`. Backends are selected explicitly and generation
-returns WAV bytes or a `GeneratedAsset` depending on the method used. The CLI supports one-shot
+returns audio bytes or a `GeneratedAsset` depending on the method used. The CLI supports one-shot
 generation and an interactive REPL with commands for engine, duration, BPM, seed, lyrics, planner
 mode, and model listing.
 
@@ -99,7 +103,7 @@ optional extras.
 ## docs/api.md
 
 `MusicManager` delegates generation to a configured backend. `generate_audio(...)` returns a
-`GeneratedAsset` unless a store is configured; `t2m(...)` returns WAV bytes directly.
+`GeneratedAsset` unless a store is configured; `t2m(...)` returns audio bytes directly.
 
 Planner providers can be callables accepting `request_dict`, objects with
 `plan_music_text(request_dict)`, or objects with `create_plan(MusicPlanningRequest)`.
@@ -110,8 +114,8 @@ The AbstractCore plugin exposes discovery methods such as `available_providers(.
 `list_models(...)`, `list_provider_models(...)`, `list_operations(...)`, and
 `capability_catalog(...)` from packaged metadata without loading model weights.
 
-Built-in backend kinds include `acestep`, `acestep-diffusers`, `acestep-v15`, `diffusers`,
-`musicgen`, and `stable-audio`.
+Built-in backend kinds include `acemusic`, `acestep`, `acestep-diffusers`, `acestep-v15`,
+`diffusers`, `musicgen`, and `stable-audio`.
 
 ---
 
@@ -122,8 +126,9 @@ metadata only and must not silently reroute configured providers or models.
 
 Reviewed model entries include:
 
-- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended default through `acestep` /
-  `acestep-diffusers`, MIT, text-to-music with lyrics.
+- `acemusic/ace-step-api`: recommended lightweight remote backend through `acemusic`.
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended local path through `acestep` /
+  `acestep-diffusers` for local generation, MIT, text-to-music with lyrics.
 - `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics,
   quality-limited in current validation.
 - `facebook/musicgen-small`: optional Transformers backend, CC BY-NC 4.0.
@@ -141,6 +146,8 @@ prefer official 16-bit artifacts.
 Common user-visible issues:
 
 - Missing generation packages usually means the backend extra was not installed.
+- Missing default remote generation credentials means `ACEMUSIC_API_KEY` is not set. Use
+  `ACEMUSIC_BASE_URL` only for compatible custom endpoints.
 - ACE-Step model access uses Hugging Face model weights and the standard Hugging Face cache, not
   local ACE-Step source-tree paths.
 - Apple MPS can fall back to CPU when generation returns non-finite audio; forcing CPU is supported

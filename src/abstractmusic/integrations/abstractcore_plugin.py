@@ -4,8 +4,9 @@ AbstractCore capability plugin for AbstractMusic.
 This registers a `music` capability backend discovered by AbstractCore via the
 `abstractcore.capabilities_plugins` entry point group.
 
-Default backend:
-- Local ACE-Step Diffusers XL pipeline (default; in-process).
+Built-in backends:
+- Remote ACE Music API backend (default light/base install path).
+- Local ACE-Step Diffusers XL pipeline (in-process, optional extra).
 - Local ACE-Step v1.5 pipeline (explicit quality-limited backend).
 - Local Diffusers audio pipeline (alternative; in-process).
 """
@@ -37,12 +38,14 @@ _TASK_ALIASES = {
 }
 
 _BACKEND_ID_TO_KIND = {
+    "abstractmusic:acemusic": "acemusic",
     "abstractmusic:acestep-diffusers": "acestep-diffusers",
     "abstractmusic:acestep-v15": "acestep-v15",
     "abstractmusic:diffusers": "diffusers",
 }
 
 _RUNTIME_IMPORTS_BY_EXTRA = {
+    "remote": (),
     "acestep": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "acestep-diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
@@ -207,6 +210,7 @@ def _canonical_provider_id(value: Any) -> str:
 
 def _display_name(provider_id: str) -> str:
     known = {
+        "ace-music": "ACE Music",
         "ace-step": "ACE-Step",
         "meta": "Meta",
         "stability-ai": "Stability AI",
@@ -237,14 +241,16 @@ def _selected_backend_kind(backend_id: str) -> Optional[str]:
 
 def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[str, Any]:
     provider_id = _canonical_provider_id(spec.provider)
+    remote = bool(spec.raw.get("remote", False))
+    local = bool(spec.raw.get("local", not remote))
     return {
         "model_id": spec.id,
         "provider_id": provider_id,
         "capability": "music",
         "tasks": list(spec.tasks),
         "modalities": [*list(spec.input_modalities), "audio"],
-        "local": True,
-        "remote": False,
+        "local": local,
+        "remote": remote,
         "status": spec.status,
         "backend_id": backend_id,
         "routed_model": spec.id,
@@ -560,6 +566,8 @@ class _AbstractMusicCapabilityBase:
         providers: Dict[str, Dict[str, Any]] = {}
         for spec in self._registry_models(task=task_s):
             provider_id = _canonical_provider_id(spec.provider)
+            spec_remote = bool(spec.raw.get("remote", False))
+            spec_local = bool(spec.raw.get("local", not spec_remote))
             entry = providers.setdefault(
                 provider_id,
                 {
@@ -567,8 +575,8 @@ class _AbstractMusicCapabilityBase:
                     "display_name": _display_name(provider_id),
                     "capability": "music",
                     "tasks": [],
-                    "local": True,
-                    "remote": False,
+                    "local": spec_local,
+                    "remote": spec_remote,
                     "status": "available",
                     "backend_id": str(getattr(self, "backend_id", "")),
                     "selected": False,
@@ -579,6 +587,8 @@ class _AbstractMusicCapabilityBase:
                     },
                 },
             )
+            entry["local"] = bool(entry.get("local")) or spec_local
+            entry["remote"] = bool(entry.get("remote")) or spec_remote
             for value in spec.tasks:
                 if value not in entry["tasks"]:
                     entry["tasks"].append(value)
@@ -682,6 +692,7 @@ class _AbstractMusicCapabilityBase:
             if task_s not in tasks:
                 return []
             tasks = [task_s]
+        formats = self._supported_output_formats()
         schema = {
             "type": "object",
             "additionalProperties": True,
@@ -690,7 +701,7 @@ class _AbstractMusicCapabilityBase:
                 "lyrics": {"type": ["string", "null"]},
                 "duration_s": {"type": ["number", "null"], "minimum": 0},
                 "seed": {"type": ["integer", "null"]},
-                "format": {"type": "string", "enum": ["wav"]},
+                "format": {"type": "string", "enum": formats},
                 "num_inference_steps": {"type": ["integer", "null"], "minimum": 1},
                 "guidance_scale": {"type": ["number", "null"]},
                 "instrumental": {"type": "boolean"},
@@ -714,11 +725,16 @@ class _AbstractMusicCapabilityBase:
                 "metadata": {
                     "typed_method": "t2m",
                     "backend_id": str(getattr(self, "backend_id", "")),
-                    "formats": ["wav"],
+                    "formats": formats,
                 },
             }
             for current_task in tasks
         ]
+
+    def _supported_output_formats(self) -> List[str]:
+        if _selected_backend_kind(str(getattr(self, "backend_id", ""))) == "acemusic":
+            return ["wav", "mp3", "flac"]
+        return ["wav"]
 
     def capability_catalog(self, *, task: Optional[str] = None) -> Dict[str, Any]:
         return {
@@ -743,9 +759,10 @@ class _AbstractMusicCapabilityBase:
         **kwargs: Any,
     ):
         fmt = str(format or "wav").strip().lower() or "wav"
-        if fmt != "wav":
+        allowed_formats = set(self._supported_output_formats())
+        if fmt not in allowed_formats:
             raise CapabilityNotSupportedError(
-                "Only format='wav' is supported (baseline, no external codecs required)."
+                f"format={fmt!r} is not supported by this backend; supported formats: {sorted(allowed_formats)}"
             )
 
         mm = self._make_manager()
@@ -754,7 +771,7 @@ class _AbstractMusicCapabilityBase:
             kwargs["planning"] = str(planner_mode or "").strip().lower() not in {"0", "false", "no", "none", "off"}
         if "text_planner_mode" not in kwargs:
             kwargs["text_planner_mode"] = planner_mode
-        out = mm.generate_audio(str(prompt or ""), lyrics=lyrics, **kwargs)
+        out = mm.generate_audio(str(prompt or ""), lyrics=lyrics, format=fmt, **kwargs)
 
         if isinstance(out, dict):
             # MusicManager should not return artifact refs here (store=None). Defensive check.
@@ -778,12 +795,58 @@ class _AbstractMusicCapabilityBase:
 
         return store.store_bytes(
             audio_bytes,
-            content_type="audio/wav",
-            filename="music.wav",
+            content_type=str(out.mime_type or ("audio/wav" if fmt == "wav" else "application/octet-stream")),
+            filename=f"music.{fmt}",
             run_id=str(run_id) if run_id else None,
             tags=merged_tags,
             metadata=merged_metadata or None,
         )
+
+
+class _AbstractMusicAceMusicCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using the lightweight ACE Music remote API."""
+
+    backend_id = "abstractmusic:acemusic"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        base_url = (
+            _owner_cfg(self._owner, "music_acemusic_base_url")
+            or _env("ACEMUSIC_BASE_URL")
+            or "https://api.acemusic.ai"
+        )
+        api_key = (
+            _owner_cfg(self._owner, "music_acemusic_api_key")
+            or _env("ACEMUSIC_API_KEY")
+        )
+        model = (
+            _owner_cfg(self._owner, "music_acemusic_model")
+        )
+        timeout_s = _owner_cfg_any(self._owner, "music_acemusic_timeout_s")
+
+        def _to_float(v: Any, default: float) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return float(default)
+
+        from ..backends.acemusic import AceMusicBackend, AceMusicBackendConfig
+
+        cfg = AceMusicBackendConfig(
+            base_url=str(base_url or "https://api.acemusic.ai"),
+            api_key=str(api_key) if api_key is not None else None,
+            model=str(model).strip() if isinstance(model, str) and model.strip() else None,
+            timeout_s=_to_float(timeout_s, 600.0),
+        )
+        self._backend = AceMusicBackend(config=cfg)
+        return self._backend
 
 
 class _AbstractMusicDiffusersCapability(_AbstractMusicCapabilityBase):
@@ -936,6 +999,16 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
 
 def register(registry: Any) -> None:
     """Register AbstractMusic as an AbstractCore capability plugin."""
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicAceMusicCapability.backend_id,
+        factory=lambda owner: _AbstractMusicAceMusicCapability(owner),
+        priority=50,
+        description="AbstractMusic ACE Music remote API path (lightweight base install; no local model runtime).",
+        config_hint="Set music_acemusic_api_key or ACEMUSIC_API_KEY. "
+        "Optional: set music_acemusic_base_url or ACEMUSIC_BASE_URL (default: https://api.acemusic.ai), "
+        "and music_text_planner / music_text_planner_factory or a narrow host text service for text planning.",
+    )
 
     registry.register_music_backend(
         backend_id=_AbstractMusicAceStepDiffusersCapability.backend_id,

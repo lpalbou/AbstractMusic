@@ -66,7 +66,7 @@ needs careful dependency containment and real validation before it can help user
 ## Dependencies and related tasks
 
 - `docs/backlog/completed/040_real_generation_validation_matrix.md`
-- `docs/backlog/planned/050_dependency_profiles_and_optional_providers.md`
+- `docs/backlog/completed/050_dependency_profiles_and_optional_providers.md`
 
 ## Expected outcomes
 

@@ -7,10 +7,18 @@ smoke tests are planned and must be opt-in because checkpoints are large.
 
 ## Which model should be the default?
 
-ACE-Step Diffusers XL Turbo through `acestep` / `acestep-diffusers` is the default because it is
-the package-owned path that passed the current 30-second reference-floor smoke. The explicit
-`acestep-v15` backend uses vendored model code but remains quality-limited after repeated-loop
-validation failures.
+The base default is `acemusic`, a lightweight remote ACE Music API backend, because the default
+package profile should not install local ML runtimes. For local generation, ACE-Step Diffusers XL
+Turbo through `acestep` / `acestep-diffusers` is the supported Apple/GPU path that passed the
+current 30-second reference-floor smoke. The explicit `acestep-v15` backend uses vendored model
+code but remains quality-limited after repeated-loop validation failures.
+
+## Does AbstractMusic use Suno, OpenAI, or Anthropic by default?
+
+No. OpenAI exposes speech/audio APIs but not a text-to-music endpoint suited to this backend.
+Anthropic does not expose music generation. Suno has a consumer music product, but the public API
+surface found during review is third-party or unofficial, so it is not a default backend. A Suno
+adapter can be added later if there is an official, stable, documented API contract.
 
 ## Can HeartMuLa generate music?
 

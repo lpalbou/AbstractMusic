@@ -197,7 +197,7 @@ class MusicManager:
         )
 
     def t2m(self, prompt: str, **kwargs: Any) -> bytes:
-        """Convenience: generate WAV bytes directly (library-mode)."""
+        """Convenience: generate audio bytes directly (library-mode)."""
         out = self.generate_audio(prompt, **kwargs)
         if isinstance(out, dict):
             # In library-mode, store is usually None; if configured, return stored content is up to caller.

@@ -3,7 +3,7 @@ AbstractMusic CLI.
 
 Goals:
 - Provide a minimal, practical interface similar to AbstractVision's CLI.
-- Support a simple REPL loop for iterative prompt→WAV generation.
+- Support a simple REPL loop for iterative prompt→audio generation.
 - Keep module import light; heavy ML imports happen only when generating.
 """
 
@@ -25,9 +25,15 @@ if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "Y
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
 
-SUPPORTED_BACKENDS = ("acestep-diffusers", "acestep-v15", "diffusers", "musicgen", "stable-audio")
-DEFAULT_BACKEND = "acestep-diffusers"
+SUPPORTED_BACKENDS = ("acemusic", "acestep-diffusers", "acestep-v15", "diffusers", "musicgen", "stable-audio")
+DEFAULT_BACKEND = "acemusic"
 BACKEND_ALIASES = {
+    "remote": "acemusic",
+    "api": "acemusic",
+    "ace-music": "acemusic",
+    "ace_music": "acemusic",
+    "acemusic-api": "acemusic",
+    "aceapi": "acemusic",
     "acestep": "acestep-diffusers",
     "ace": "acestep-diffusers",
     "ace-step": "acestep-diffusers",
@@ -124,6 +130,14 @@ def _copy_namespace(args: argparse.Namespace) -> argparse.Namespace:
     return argparse.Namespace(**vars(args))
 
 
+def _acemusic_default_base_url() -> str:
+    return _env("ACEMUSIC_BASE_URL") or "https://api.acemusic.ai"
+
+
+def _acemusic_default_api_key() -> Optional[str]:
+    return _env("ACEMUSIC_API_KEY")
+
+
 def _configure_mps_env(args: argparse.Namespace) -> None:
     backend_kind = str(getattr(args, "backend", "acestep-v15") or "acestep-v15").strip().lower()
     if backend_kind != "acestep-v15":
@@ -144,7 +158,7 @@ def _configure_mps_env(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="abstractmusic", description="AbstractMusic — local text-to-audio/music generation")
+    p = argparse.ArgumentParser(prog="abstractmusic", description="AbstractMusic — text-to-audio/music generation")
 
     def _add_common_args(parser: argparse.ArgumentParser, *, use_defaults: bool) -> None:
         """
@@ -172,7 +186,11 @@ def build_parser() -> argparse.ArgumentParser:
             default=_normalize_backend(_env("ABSTRACTMUSIC_BACKEND", DEFAULT_BACKEND) or DEFAULT_BACKEND)
             if use_defaults
             else default_suppress,
-            help="Local generation engine/backend (acestep|acestep-v15|acestep-diffusers|diffusers|musicgen|stable-audio; aliases: ace, xl, v15, hf). Default: acestep.",
+            help=(
+                "Generation engine/backend (acemusic|acestep|acestep-v15|acestep-diffusers|"
+                "diffusers|musicgen|stable-audio; aliases: remote, ace-music, ace, xl, v15, hf). "
+                "Default: acemusic."
+            ),
         )
         parser.add_argument(
             "--model-id",
@@ -183,6 +201,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Diffusers: any Diffusers audio checkpoint id (license varies). "
             "ACE-Step: ACE-Step/Ace-Step1.5. ACE-Step Diffusers: ACE-Step/acestep-v15-xl-turbo-diffusers. "
             "MusicGen: facebook/musicgen-small. Stable Audio: stabilityai/stable-audio-open-small.",
+        )
+        parser.add_argument(
+            "--acemusic-base-url",
+            dest="acemusic_base_url",
+            default=_acemusic_default_base_url() if use_defaults else default_suppress,
+            help="ACE Music API base URL, or set $ACEMUSIC_BASE_URL. Default: https://api.acemusic.ai.",
+        )
+        parser.add_argument(
+            "--acemusic-api-key",
+            dest="acemusic_api_key",
+            default=_acemusic_default_api_key() if use_defaults else default_suppress,
+            help="ACE Music API key, or set $ACEMUSIC_API_KEY.",
         )
         parser.add_argument(
             "--revision",
@@ -233,6 +263,12 @@ def build_parser() -> argparse.ArgumentParser:
             type=float,
             default=float(_env("ABSTRACTMUSIC_DURATION_S", "10") or "10") if use_defaults else default_suppress,
             help="seconds",
+        )
+        parser.add_argument(
+            "--format",
+            choices=("wav", "mp3", "flac"),
+            default=_env("ABSTRACTMUSIC_FORMAT", "wav") if use_defaults else default_suppress,
+            help="Output audio format when supported by the selected backend. Default: wav.",
         )
         bpm_env = _env("ABSTRACTMUSIC_BPM")
         parser.add_argument(
@@ -409,7 +445,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    t2m = sub.add_parser("t2m", help="Generate a WAV file from a single prompt")
+    t2m = sub.add_parser("t2m", help="Generate an audio file from a single prompt")
     _add_common_args(t2m, use_defaults=False)
     t2m.add_argument("prompt", help="Text prompt")
     t2m.add_argument(
@@ -417,9 +453,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional lyrics (ACE-Step supports lyrics natively). Use 'auto' to generate local lyrics.",
     )
-    t2m.add_argument("--out", default="out.wav", help="Output WAV path")
+    t2m.add_argument("--out", default="out.wav", help="Output audio path")
 
-    repl = sub.add_parser("repl", help="Interactive modular prompt→WAV loop")
+    repl = sub.add_parser("repl", help="Interactive modular prompt→audio loop")
     _add_common_args(repl, use_defaults=False)
     repl.add_argument("--out-dir", default=".", help="Directory to write WAV files into")
     repl.add_argument("--prefix", default="music", help="Filename prefix for outputs")
@@ -453,11 +489,21 @@ def _make_manager_from_args(args: argparse.Namespace):
 
     backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     model_id = str(getattr(args, "model_id", "") or "").strip()
-    if model_id:
+    if backend_kind != "acemusic" and model_id:
         try:
             model_id = require_hf_repo_id(model_id, field_name="--model-id / ABSTRACTMUSIC_MODEL_ID")
         except ValueError as e:
             raise SystemExit(str(e)) from e
+
+    if backend_kind == "acemusic":
+        from .backends.acemusic import AceMusicBackend, AceMusicBackendConfig
+
+        cfg = AceMusicBackendConfig(
+            base_url=str(getattr(args, "acemusic_base_url", None) or _acemusic_default_base_url()),
+            api_key=getattr(args, "acemusic_api_key", None) or _acemusic_default_api_key(),
+        )
+        backend = AceMusicBackend(config=cfg)
+        return MusicManager(backend=backend)
 
     if backend_kind == "acestep-diffusers":
         from .backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
@@ -582,7 +628,7 @@ def _make_manager_from_args(args: argparse.Namespace):
 
 
 def _native_lyrics_supported(backend_kind: str) -> bool:
-    return str(backend_kind or "").strip().lower() in {"acestep-diffusers", "acestep-v15"}
+    return str(backend_kind or "").strip().lower() in {"acemusic", "acestep-diffusers", "acestep-v15"}
 
 
 def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Optional[str]) -> tuple[str, Optional[str], dict[str, Any]]:
@@ -637,6 +683,7 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
     wav = mm.t2m(
         prompt,
         duration_s=float(args.duration),
+        format=str(getattr(args, "format", "wav") or "wav"),
         num_inference_steps=int(args.steps) if args.steps is not None else None,
         guidance_scale=args.guidance_scale,
         seed=args.seed,
@@ -663,7 +710,7 @@ class MusicREPL(cmd.Cmd):
     def __init__(self, args: argparse.Namespace) -> None:
         super().__init__()
         self.args = _copy_namespace(args)
-        self.args.backend = _normalize_backend(str(getattr(self.args, "backend", "acestep") or "acestep"))
+        self.args.backend = _normalize_backend(str(getattr(self.args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND))
         self.out_dir = Path(str(getattr(self.args, "out_dir", ".") or ".")).expanduser()
         self.prefix = str(getattr(self.args, "prefix", "music") or "music").strip() or "music"
         self.open_outputs = bool(getattr(self.args, "open", False))
@@ -737,7 +784,8 @@ class MusicREPL(cmd.Cmd):
     def _next_output_path(self) -> Path:
         self._render_count += 1
         stamp = _timestamp_id()
-        return self.out_dir / f"{self.prefix}-{stamp}-{self._render_count:03d}.wav"
+        fmt = str(getattr(self.args, "format", "wav") or "wav").strip().lower() or "wav"
+        return self.out_dir / f"{self.prefix}-{stamp}-{self._render_count:03d}.{fmt}"
 
     @staticmethod
     def _tokens(arg: str) -> list[str]:
@@ -814,6 +862,7 @@ class MusicREPL(cmd.Cmd):
         wav = mm.t2m(
             request_prompt,
             duration_s=duration,
+            format=str(getattr(self.args, "format", "wav") or "wav"),
             num_inference_steps=int(getattr(self.args, "steps")) if getattr(self.args, "steps", None) is not None else None,
             guidance_scale=getattr(self.args, "guidance_scale", None),
             seed=getattr(self.args, "seed", None),
@@ -851,8 +900,9 @@ class MusicREPL(cmd.Cmd):
         print("  /prompt [text|clear]     Show, set, or clear the session prompt")
         print("  /run                     Generate from the current prompt")
         print("  /generate [prompt]       Generate from a prompt; bare prompt also works")
-        print("  /engine [name]           Show or set engine: acestep, acestep-v15, xl, diffusers, musicgen, stable-audio")
+        print("  /engine [name]           Show or set engine: acemusic, acestep, acestep-v15, xl, diffusers, musicgen, stable-audio")
         print("  /model [id|clear]        Show or set model id")
+        print("  /format [wav|mp3|flac]   Show or set output format")
         print("  /lm-backend [auto|cuda|xpu|mps|cpu]")
         print("  /device [auto|mps|cuda|cpu]")
         print("  /dtype [auto|float16|bfloat16|float32]")
@@ -957,6 +1007,17 @@ class MusicREPL(cmd.Cmd):
             setattr(self.args, "model_id", value)
             print(f"model: {value}")
         self._mark_dirty()
+
+    def do_format(self, arg: str) -> None:
+        value = str(arg or "").strip().lower()
+        if not value:
+            print(str(getattr(self.args, "format", "wav") or "wav"))
+            return
+        if value not in {"wav", "mp3", "flac"}:
+            print("Usage: /format [wav|mp3|flac]")
+            return
+        setattr(self.args, "format", value)
+        print(f"format: {value}")
 
     def do_lm_backend(self, arg: str) -> None:
         value = str(arg or "").strip()
@@ -1116,6 +1177,7 @@ class MusicREPL(cmd.Cmd):
             ("model", getattr(self.args, "model_id", None) or "default"),
             ("lm_backend", getattr(self.args, "lm_backend", None) or "auto"),
             ("prompt", self.current_prompt or "none"),
+            ("format", getattr(self.args, "format", "wav")),
             ("device", getattr(self.args, "device", "auto")),
             ("dtype", getattr(self.args, "dtype", "auto")),
             ("duration", getattr(self.args, "duration", None)),

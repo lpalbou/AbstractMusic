@@ -21,7 +21,8 @@ asset = music.generate_audio(
 `generate_audio(...)` returns a `GeneratedAsset` unless a store is configured, in which case it can
 return an artifact reference.
 
-`t2m(...)` is a convenience method that returns WAV bytes directly.
+`t2m(...)` is a convenience method that returns audio bytes directly. WAV is the baseline format;
+remote backends may support additional formats.
 
 ## Text Planning
 
@@ -89,8 +90,10 @@ The registry is metadata only. It must not silently change the configured provid
 
 ## Built-In Backend Kinds
 
-- `acestep`: default ACE-Step Diffusers XL Turbo backend.
-- `acestep-diffusers`: explicit name for the default ACE-Step Diffusers adapter for
+- `acemusic`: default lightweight remote backend for the ACE Music hosted API. It requires a remote
+  API key and can request WAV, MP3, or FLAC.
+- `acestep`: local ACE-Step Diffusers XL Turbo backend alias.
+- `acestep-diffusers`: explicit name for the local ACE-Step Diffusers adapter for
   `ACE-Step/acestep-v15-xl-turbo-diffusers`.
 - `acestep-v15`: explicit quality-limited ACE-Step v1.5 backend, using vendored model code and
   package-owned orchestration.
