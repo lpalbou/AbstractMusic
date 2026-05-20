@@ -22,7 +22,8 @@ pip install "abstractmusic[all-gpu]"
 ```
 
 The `acestep` profile installs the package-owned ACE-Step route. On Apple MPS, AbstractMusic
-falls back to CPU float32 if the Diffusers ACE-Step pipeline returns non-finite audio.
+prefers MPS bfloat16 when the local PyTorch stack supports it, then MPS float32, and only falls
+back to CPU float32 if MPS still returns invalid audio.
 
 ## Quickstart (local generation)
 
@@ -91,6 +92,10 @@ abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out 
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 
+# Richer local conditioning for ACE-Step
+abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
+abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
+
 # Interactive REPL
 abstractmusic --engine xl repl
 abstractmusic --engine musicgen repl
@@ -105,6 +110,9 @@ The REPL accepts bare prompts, a reusable `/prompt` + `/run` flow, and slash com
 /seed 123
 /verbose off
 /lyrics [Instrumental]
+/enhance-prompt on
+/structure-prompt on
+/auto-lyrics on
 /prompt bright melodic synth pop loop with steady drums
 /run
 bright melodic synth pop loop with steady drums
@@ -113,6 +121,9 @@ bright melodic synth pop loop with steady drums
 Set duration either at startup (`abstractmusic repl --duration 30`) or inside the REPL
 (`/duration 30`). ACE-Step v1.5 expects 10-600 seconds. Add `--verbose` or use `/verbose on` only
 when you want backend logs and progress bars.
+For generations of 45 seconds or more, `--structure-prompt` is enabled by default and adds a compact
+intro/build/bridge/climax/outro section map to the caption. Use `--no-structure-prompt` or
+`/structure-prompt off` to pass long prompts through unchanged.
 
 ## Licensing note
 
@@ -125,8 +136,10 @@ when you want backend logs and progress bars.
 
 ### macOS / Apple Silicon note (MLX/MPS)
 
-On Apple systems, the default `acestep` / `acestep-diffusers` path tries PyTorch MPS first and
-falls back to CPU float32 when the pipeline returns non-finite audio.
+On Apple systems, the default `acestep` / `acestep-diffusers` path tries PyTorch MPS first. ACE-Step
+Diffusers fp16 can overflow during transformer denoising on MPS, so the automatic dtype prefers MPS
+bfloat16 when supported and MPS float32 otherwise. CPU float32 is only the final fallback when MPS
+still returns non-finite audio.
 
 Some Diffusers audio pipelines can fail on the `mps` device due to PyTorch backend limitations (typically during vocoder inference).
 `abstractmusic` will **retry on CPU** with a clear warning (`#FALLBACK`) when it detects the known MPS channel-limit error.

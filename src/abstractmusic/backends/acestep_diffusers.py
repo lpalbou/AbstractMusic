@@ -84,6 +84,27 @@ def _resolve_device(torch_mod: Any, device: str) -> str:
     return "cpu"
 
 
+def _mps_supports_bfloat16(torch_mod: Any) -> bool:
+    """Return whether this local PyTorch/MPS stack can execute bf16 tensor ops."""
+
+    try:
+        mps = getattr(torch_mod.backends, "mps", None)
+        if mps is None or not bool(getattr(mps, "is_available", lambda: False)()):
+            return False
+        x = torch_mod.ones((1, 1), device="mps", dtype=torch_mod.bfloat16)
+        y = x + x
+        return str(getattr(y, "dtype", "")) == str(torch_mod.bfloat16)
+    except Exception:
+        return False
+
+
+def _preferred_mps_dtype(torch_mod: Any) -> Any:
+    # ACE-Step XL Turbo's transformer residual stream can exceed fp16 range on
+    # MPS. Prefer bf16 when available because it keeps fp32-like dynamic range;
+    # otherwise use fp32 rather than a known-bad fp16 default.
+    return torch_mod.bfloat16 if _mps_supports_bfloat16(torch_mod) else torch_mod.float32
+
+
 def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
     d = str(dtype or "").strip().lower() or "auto"
     dev = str(device or "").strip().lower() or "cpu"
@@ -91,17 +112,25 @@ def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
         if dev in {"cuda", "xpu"}:
             return torch_mod.bfloat16
         if dev == "mps":
-            return torch_mod.float16
+            return _preferred_mps_dtype(torch_mod)
         return torch_mod.float32
     if d in {"bfloat16", "bf16"}:
         if dev in {"cuda", "xpu"}:
             return torch_mod.bfloat16
+        if dev == "mps":
+            if _mps_supports_bfloat16(torch_mod):
+                return torch_mod.bfloat16
+            print(
+                "WARNING #FALLBACK : bfloat16 is not supported by this PyTorch MPS stack; using float32.",
+                file=sys.stderr,
+            )
+            return torch_mod.float32
         print(
             "WARNING #FALLBACK : bfloat16 is not a supported ACE-Step Diffusers dtype on this device; "
-            "using float16 on MPS or float32 on CPU.",
+            "using float32.",
             file=sys.stderr,
         )
-        return torch_mod.float16 if dev == "mps" else torch_mod.float32
+        return torch_mod.float32
     if d in {"float16", "fp16"}:
         if dev == "cpu":
             print(
@@ -109,6 +138,12 @@ def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
                 file=sys.stderr,
             )
             return torch_mod.float32
+        if dev == "mps":
+            print(
+                "WARNING #FALLBACK : ACE-Step Diffusers float16 on MPS can overflow during transformer "
+                "denoising; non-finite output will retry with bfloat16 or float32.",
+                file=sys.stderr,
+            )
         return torch_mod.float16
     return torch_mod.float32
 
@@ -170,6 +205,7 @@ class AceStepDiffusersBackendConfig:
     shift: Optional[float] = 3.0
     enable_vae_tiling: bool = True
     auto_retry_cpu_on_mps_error: bool = True
+    local_files_only: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
@@ -211,7 +247,11 @@ class AceStepDiffusersBackend:
         device = _resolve_device(torch, self._config.device)
         dtype = _resolve_dtype(torch, self._config.torch_dtype, device=device)
 
-        pipe = pipe_cls.from_pretrained(str(self._config.model_id), torch_dtype=dtype)
+        pipe = pipe_cls.from_pretrained(
+            str(self._config.model_id),
+            torch_dtype=dtype,
+            local_files_only=bool(self._config.local_files_only),
+        )
         to_fn = getattr(pipe, "to", None)
         if callable(to_fn):
             pipe = to_fn(device)
@@ -282,6 +322,19 @@ class AceStepDiffusersBackend:
             kwargs = {k: v for k, v in kwargs.items() if k in params}
 
         fallback_events = []
+
+        def _refresh_generator(call_kwargs: Dict[str, Any], *, device_name: str) -> Dict[str, Any]:
+            updated = dict(call_kwargs)
+            if "generator" in updated and isinstance(request.seed, int) and request.seed >= 0:
+                updated["generator"] = torch.Generator(device=str(device_name)).manual_seed(int(request.seed))
+            return updated
+
+        def _reload_pipe(*, device_name: str, dtype_name: str) -> Any:
+            self._pipe = None
+            self._pipe_device = None
+            self._pipe_dtype = None
+            self._config = replace(self._config, device=device_name, torch_dtype=dtype_name)
+            return self._load_pipe()
         try:
             out = self._run_pipe(pipe, kwargs)
         except NotImplementedError as e:
@@ -295,14 +348,8 @@ class AceStepDiffusersBackend:
                     file=sys.stderr,
                 )
                 fallback_events.append("mps_decode_cpu_retry")
-                self._pipe = None
-                self._pipe_device = None
-                self._pipe_dtype = None
-                self._config = replace(self._config, device="cpu", torch_dtype="float32")
-                pipe = self._load_pipe()
-                kwargs = dict(kwargs)
-                if "generator" in kwargs and isinstance(request.seed, int) and request.seed >= 0:
-                    kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(request.seed))
+                pipe = _reload_pipe(device_name="cpu", dtype_name="float32")
+                kwargs = _refresh_generator(kwargs, device_name="cpu")
                 out = self._run_pipe(pipe, kwargs)
             else:
                 raise
@@ -324,20 +371,28 @@ class AceStepDiffusersBackend:
             msg = str(e)
             is_mps = str(self._pipe_device or "").strip().lower() == "mps"
             if is_mps and "non-finite audio" in msg and bool(self._config.auto_retry_cpu_on_mps_error):
-                print(
-                    "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
-                    "retrying on CPU float32.",
-                    file=sys.stderr,
-                )
-                fallback_events.append("mps_nonfinite_audio_cpu_retry")
-                self._pipe = None
-                self._pipe_device = None
-                self._pipe_dtype = None
-                self._config = replace(self._config, device="cpu", torch_dtype="float32")
-                pipe = self._load_pipe()
-                kwargs = dict(kwargs)
-                if "generator" in kwargs and isinstance(request.seed, int) and request.seed >= 0:
-                    kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(request.seed))
+                preferred_mps_dtype = _preferred_mps_dtype(torch)
+                current_dtype = str(self._pipe_dtype)
+                target_dtype = str(preferred_mps_dtype)
+                if current_dtype != target_dtype:
+                    dtype_name = "bfloat16" if target_dtype == str(torch.bfloat16) else "float32"
+                    print(
+                        "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
+                        f"retrying on MPS {dtype_name}.",
+                        file=sys.stderr,
+                    )
+                    fallback_events.append(f"mps_nonfinite_audio_mps_{dtype_name}_retry")
+                    pipe = _reload_pipe(device_name="mps", dtype_name=dtype_name)
+                    kwargs = _refresh_generator(kwargs, device_name="mps")
+                else:
+                    print(
+                        "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
+                        "retrying on CPU float32.",
+                        file=sys.stderr,
+                    )
+                    fallback_events.append("mps_nonfinite_audio_cpu_retry")
+                    pipe = _reload_pipe(device_name="cpu", dtype_name="float32")
+                    kwargs = _refresh_generator(kwargs, device_name="cpu")
                 out = self._run_pipe(pipe, kwargs)
                 sr = getattr(pipe, "sample_rate", None)
                 sample_rate = int(sr) if isinstance(sr, int) and sr > 0 else 48000

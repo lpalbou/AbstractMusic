@@ -44,10 +44,14 @@ abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wa
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
+abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
+abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
 ```
 
 Use `--verbose` when you need backend logs and progress bars. By default the CLI keeps
 ACE-Step startup/generation logs quiet and prints the output path.
+For generations of 45 seconds or more, `--structure-prompt` is enabled by default and adds a compact
+section map to the caption. Use `--no-structure-prompt` to pass long prompts through unchanged.
 
 ## Interactive REPL
 
@@ -70,6 +74,9 @@ Inside the REPL:
 /seed 123
 /verbose off
 /lyrics [Instrumental]
+/enhance-prompt on
+/structure-prompt on
+/auto-lyrics on
 /prompt bright melodic synth pop loop with steady drums
 /run
 bright melodic synth pop loop with steady drums
@@ -114,5 +121,6 @@ python -m pytest -q tests/integration/test_real_generation.py
 
 Generated smoke artifacts are written under `test-artifacts/` by default and are ignored by git.
 
-On Apple hardware, the default `acestep` path uses PyTorch MPS first with explicit CPU fallback
-when the Diffusers pipeline returns non-finite audio.
+On Apple hardware, the default `acestep` path uses PyTorch MPS first. Its automatic dtype prefers
+MPS bfloat16 when available, MPS float32 otherwise, and CPU float32 only if MPS still returns
+non-finite audio.

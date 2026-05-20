@@ -14,7 +14,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 ## Status counts
 
 - Planned: 9
-- Proposed: 1
+- Proposed: 2
 - Completed: 4
 - Deprecated: 1
 - Recurrent: 2
@@ -68,6 +68,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | Item | Promotion criteria |
 | --- | --- |
 | `proposed/2026-05-08_music_install_profile_boundary.md` | Promote when the dependency-profile split becomes implementation work. |
+| `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 
 ## Deprecated work
 
@@ -88,6 +89,9 @@ When a planned item is complete:
 ## Planning notes
 
 - ACE-Step v1.5 must use the standalone `acestep` / `acestep-v15` package backend.
+- Backlog hygiene note: `proposed/2026-05-08_music_install_profile_boundary.md` predates the
+  current four-digit global ID filename convention and should be renamed during the next dedicated
+  backlog hygiene pass.
 - Previous external-runtime smoke artifacts remain useful as references, but they do not prove the
   standalone package path works.
 - On Apple hardware, prefer PyTorch MPS for the standalone ACE-Step backend with clear CPU

@@ -80,7 +80,7 @@
       "license": "MIT",
       "commercial_allowed": true,
       "recommended": true,
-      "status": "validated-cpu-fallback",
+      "status": "validated-mps-bf16-cpu-fallback",
       "tasks": ["text_to_music"],
       "input_modalities": ["text", "lyrics"],
       "output_formats": ["wav"],
@@ -92,10 +92,10 @@
       "max_duration_s": null,
       "sample_rate_hz": 48000,
       "official_8bit_available": false,
-      "preferred_precision": "official Diffusers checkpoint dtype; prefer 16-bit/bf16 where supported because no official 8-bit artifact is available",
+      "preferred_precision": "official Diffusers checkpoint dtype; prefer MPS bfloat16 when available, MPS float32 otherwise, and CPU float32 as final fallback because fp16 can overflow the transformer residual stream",
       "dependency_extra": "acestep-diffusers",
       "source_url": "https://huggingface.co/ACE-Step/acestep-v15-xl-turbo-diffusers",
-      "notes": "Default `acestep` route. Uses Diffusers AceStepPipeline with Hugging Face checkpoint files, not an external ACE-Step source tree or package. On Apple MPS the pipeline can return non-finite audio, so AbstractMusic falls back to CPU float32. A 30-second CPU seed-123 smoke passed harmonic-diversity and spectrotemporal artifact gates against the accepted reference floor."
+      "notes": "Default `acestep` route. Uses Diffusers AceStepPipeline with Hugging Face checkpoint files, not an external ACE-Step source tree or package. On Apple MPS, fp16 can overflow during transformer denoising; AbstractMusic prefers MPS bfloat16 when supported, then MPS float32, and only falls back to CPU float32 if MPS still fails. A 30-second CPU seed-123 smoke passed harmonic-diversity and spectrotemporal artifact gates against the accepted reference floor."
     },
     {
       "id": "ACE-Step/acestep-v15-xl-turbo",

@@ -106,7 +106,7 @@ def test_acestep_diffusers_registry_tracks_default_route():
     spec = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-xl-turbo-diffusers")
 
     assert spec.recommended is True
-    assert spec.status == "validated-cpu-fallback"
+    assert spec.status == "validated-mps-bf16-cpu-fallback"
     assert spec.backend_kinds[0] == "acestep-diffusers"
     assert spec.dependency_extra == "acestep-diffusers"
     assert "Default `acestep` route" in spec.notes

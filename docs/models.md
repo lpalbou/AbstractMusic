@@ -14,8 +14,9 @@ checkpoint directory paths or custom Hugging Face cache directories.
 - `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the default `acestep` /
   `acestep-diffusers` backend, MIT, text-to-music with lyrics. This path uses Diffusers
   AceStepPipeline, Hugging Face checkpoint files, and package-owned orchestration without an
-  external ACE-Step source tree or package. On Apple MPS, AbstractMusic falls back to CPU float32
-  when the pipeline returns non-finite audio.
+  external ACE-Step source tree or package. On Apple MPS, AbstractMusic avoids fp16 denoising
+  overflow by preferring MPS bfloat16 when supported and MPS float32 otherwise; CPU float32 remains
+  the final fallback if MPS returns non-finite audio.
 - `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics. This
   path uses vendored ACE-Step model code and package-owned orchestration without an external
   ACE-Step source tree or package, but it is quality-limited after repeated-loop validation
@@ -49,5 +50,5 @@ Prefer official 8-bit artifacts when available. If none are available, prefer of
 artifacts. The reviewed models currently do not expose official 8-bit checkpoints in their Hugging
 Face metadata.
 
-On Apple hardware, use PyTorch MPS for standalone providers when supported and keep CPU fallback
-explicit in logs/metadata. CPU is a fallback path, not the default acceleration strategy.
+On Apple hardware, use PyTorch MPS for standalone providers when supported and keep dtype/fallback
+events explicit in logs/metadata. CPU is a fallback path, not the default acceleration strategy.

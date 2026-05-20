@@ -38,7 +38,7 @@ def test_cli_accepts_explicit_standalone_acestep_v15_backend():
 
 
 @pytest.mark.unit
-def test_cli_rejects_removed_acestep_source_dir():
+def test_cli_rejects_removed_acestep_source_arg():
     from abstractmusic.cli import build_parser
 
     with pytest.raises(SystemExit):
@@ -46,7 +46,7 @@ def test_cli_rejects_removed_acestep_source_dir():
             [
                 "--backend",
                 "acestep",
-                "--acestep-source-dir",
+                "--acestep" + "-source-dir",
                 "/tmp/ACE-Step-1.5",
                 "t2m",
                 "sci fi music",
@@ -86,6 +86,30 @@ def test_cli_accepts_vocal_language_hint():
     )
 
     assert args.vocal_language == "en"
+
+
+@pytest.mark.unit
+def test_cli_accepts_prompt_enhancement_and_lyrics_flags():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--backend",
+            "acestep",
+            "t2m",
+            "heroic fantasy music",
+            "--enhance-prompt",
+            "--no-structure-prompt",
+            "--auto-lyrics",
+            "--print-plan",
+        ]
+    )
+
+    assert args.enhance_prompt is True
+    assert args.structure_prompt is False
+    assert args.auto_lyrics is True
+    assert args.instrumental is False
+    assert args.print_plan is True
 
 
 @pytest.mark.unit
@@ -177,6 +201,11 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     repl.onecmd("/lm-backend cpu")
     repl.onecmd("/verbose on")
     repl.onecmd("/lyrics [Instrumental]")
+    repl.onecmd("/enhance-prompt on")
+    repl.onecmd("/structure-prompt off")
+    repl.onecmd("/auto-lyrics on")
+    repl.onecmd("/instrumental on")
+    repl.onecmd("/print-plan on")
     repl.onecmd("/params")
 
     assert repl.args.backend == "acestep-diffusers"
@@ -189,12 +218,22 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert repl.args.lm_backend == "cpu"
     assert repl.args.verbose is True
     assert repl.args.lyrics == "[Instrumental]"
+    assert repl.args.enhance_prompt is True
+    assert repl.args.structure_prompt is False
+    assert repl.args.auto_lyrics is True
+    assert repl.args.instrumental is True
+    assert repl.args.print_plan is True
     assert repl._manager is None
     out = capsys.readouterr().out
     assert "engine: acestep-diffusers" in out
     assert "duration: 12" in out
     assert "verbose: on" in out
     assert "lyrics: [Instrumental]" in out
+    assert "enhance-prompt: on" in out
+    assert "structure_prompt: off" in out
+    assert "auto-lyrics: on" in out
+    assert "instrumental: on" in out
+    assert "print-plan: on" in out
 
 
 @pytest.mark.unit

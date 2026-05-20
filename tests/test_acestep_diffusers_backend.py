@@ -45,8 +45,8 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
             self.device = None
 
         @classmethod
-        def from_pretrained(cls, model_id, torch_dtype=None):
-            calls["load"] = (model_id, torch_dtype)
+        def from_pretrained(cls, model_id, torch_dtype=None, local_files_only=False):
+            calls["load"] = (model_id, torch_dtype, local_files_only)
             return cls()
 
         def to(self, device):
@@ -102,7 +102,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
         )
     )
 
-    assert calls["load"] == ("ACE-Step/acestep-v15-xl-turbo-diffusers", "fp16")
+    assert calls["load"] == ("ACE-Step/acestep-v15-xl-turbo-diffusers", "fp32", True)
     assert calls["device"] == "mps"
     assert calls["call"]["prompt"] == "bright synthwave"
     assert calls["call"]["lyrics"] == "[Verse]\nNeon night"
@@ -148,3 +148,109 @@ def test_acestep_diffusers_accepts_batched_pipeline_audio_shape():
         assert wf.getframerate() == 48000
         assert wf.getnchannels() == 2
         assert wf.getnframes() == 48000
+
+
+@pytest.mark.unit
+def test_acestep_diffusers_prefers_mps_bfloat16_when_supported(monkeypatch):
+    from abstractmusic.backends.acestep_diffusers import _resolve_dtype
+
+    class _FakeTensor:
+        dtype = "bf16"
+
+        def __add__(self, _other):
+            return self
+
+    fake_torch = types.SimpleNamespace(
+        bfloat16="bf16",
+        float16="fp16",
+        float32="fp32",
+        ones=lambda *_a, **_k: _FakeTensor(),
+        backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True)),
+    )
+
+    assert _resolve_dtype(fake_torch, "auto", device="mps") == "bf16"
+
+
+@pytest.mark.unit
+def test_acestep_diffusers_retries_explicit_mps_fp16_with_mps_bfloat16(monkeypatch):
+    from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+
+    loads = []
+
+    class _FakeGenerator:
+        def __init__(self, device=None):
+            self.device = device
+
+        def manual_seed(self, seed):
+            self.seed = seed
+            return self
+
+    class _FakeTensor:
+        dtype = "bf16"
+
+        def __add__(self, _other):
+            return self
+
+    fake_torch = types.SimpleNamespace(
+        bfloat16="bf16",
+        float16="fp16",
+        float32="fp32",
+        Generator=_FakeGenerator,
+        ones=lambda *_a, **_k: _FakeTensor(),
+        cuda=types.SimpleNamespace(is_available=lambda: False),
+        backends=types.SimpleNamespace(mps=types.SimpleNamespace(is_available=lambda: True)),
+    )
+
+    class _FakePipe:
+        sample_rate = 48000
+
+        def __init__(self, dtype):
+            self.dtype = dtype
+            self.device = None
+            self.vae = types.SimpleNamespace(enable_tiling=lambda: None)
+
+        @classmethod
+        def from_pretrained(cls, model_id, torch_dtype=None, local_files_only=False):
+            loads.append((model_id, torch_dtype, local_files_only))
+            return cls(torch_dtype)
+
+        def to(self, device):
+            self.device = device
+            return self
+
+        def __call__(
+            self,
+            *,
+            prompt,
+            lyrics,
+            audio_duration,
+            vocal_language,
+            num_inference_steps,
+            shift,
+            generator=None,
+        ):
+            _ = prompt, lyrics, audio_duration, vocal_language, num_inference_steps, shift, generator
+            if self.dtype == "fp16":
+                return types.SimpleNamespace(audios=[[[float("nan")] * 48000, [float("nan")] * 48000]])
+            return types.SimpleNamespace(audios=[[[0.0] * 48000, [0.0] * 48000]])
+
+    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_torch", lambda: fake_torch)
+    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_acestep_pipeline", lambda: _FakePipe)
+
+    backend = AceStepDiffusersBackend(
+        config=AceStepDiffusersBackendConfig(
+            model_id="ACE-Step/acestep-v15-xl-turbo-diffusers",
+            device="mps",
+            torch_dtype="float16",
+        )
+    )
+    asset = backend.generate_audio(AudioGenerationRequest(prompt="x", duration_s=1.0, seed=7))
+
+    assert bytes(asset.data)[:4] == b"RIFF"
+    assert loads == [
+        ("ACE-Step/acestep-v15-xl-turbo-diffusers", "fp16", True),
+        ("ACE-Step/acestep-v15-xl-turbo-diffusers", "bf16", True),
+    ]
+    assert asset.metadata["device"] == "mps"
+    assert asset.metadata["dtype"] == "bf16"
+    assert asset.metadata["fallback_events"] == ("mps_nonfinite_audio_mps_bfloat16_retry",)

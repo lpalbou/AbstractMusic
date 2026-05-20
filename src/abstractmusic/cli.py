@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .huggingface import require_hf_repo_id
+from .prompt_planner import create_prompt_plan
 
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
@@ -258,6 +259,36 @@ def build_parser() -> argparse.ArgumentParser:
             help="Optional ACE-Step vocal language hint, e.g. en. Default leaves language as unknown.",
         )
         parser.add_argument(
+            "--enhance-prompt",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_ENHANCE_PROMPT", False) if use_defaults else default_suppress,
+            help="Locally expand short prompts into richer music captions before generation.",
+        )
+        parser.add_argument(
+            "--structure-prompt",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_STRUCTURE_PROMPT", True) if use_defaults else default_suppress,
+            help="Automatically add a compact section plan for long generations (>=45s). Default: on.",
+        )
+        parser.add_argument(
+            "--auto-lyrics",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_AUTO_LYRICS", False) if use_defaults else default_suppress,
+            help="Generate simple structured lyrics locally from the prompt.",
+        )
+        parser.add_argument(
+            "--instrumental",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_INSTRUMENTAL", False) if use_defaults else default_suppress,
+            help="Use the ACE-Step [Instrumental] lyrics marker.",
+        )
+        parser.add_argument(
+            "--print-plan",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_PRINT_PLAN", False) if use_defaults else default_suppress,
+            help="Print the effective caption, lyrics, and music metadata before generation.",
+        )
+        parser.add_argument(
             "--guidance-scale",
             type=float,
             default=None if use_defaults else default_suppress,
@@ -376,7 +407,11 @@ def build_parser() -> argparse.ArgumentParser:
     t2m = sub.add_parser("t2m", help="Generate a WAV file from a single prompt")
     _add_common_args(t2m, use_defaults=False)
     t2m.add_argument("prompt", help="Text prompt")
-    t2m.add_argument("--lyrics", default=None, help="Optional lyrics (ACE-Step supports lyrics natively).")
+    t2m.add_argument(
+        "--lyrics",
+        default=None,
+        help="Optional lyrics (ACE-Step supports lyrics natively). Use 'auto' to generate local lyrics.",
+    )
     t2m.add_argument("--out", default="out.wav", help="Output WAV path")
 
     repl = sub.add_parser("repl", help="Interactive modular prompt→WAV loop")
@@ -384,7 +419,11 @@ def build_parser() -> argparse.ArgumentParser:
     repl.add_argument("--out-dir", default=".", help="Directory to write WAV files into")
     repl.add_argument("--prefix", default="music", help="Filename prefix for outputs")
     repl.add_argument("--prompt", default=None, help="Initial prompt for /run.")
-    repl.add_argument("--lyrics", default=None, help="Optional lyrics applied to every prompt in this REPL session.")
+    repl.add_argument(
+        "--lyrics",
+        default=None,
+        help="Optional lyrics applied to every prompt in this REPL session. Use 'auto' to generate local lyrics.",
+    )
     repl.add_argument("--open", action="store_true", help="Open output file after each generation (best-effort)")
 
     return p
@@ -427,6 +466,7 @@ def _make_manager_from_args(args: argparse.Namespace):
             num_inference_steps=int(getattr(args, "steps", None) or 8),
             duration_s=float(getattr(args, "duration", 10.0)),
             guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else None,
+            shift=float(getattr(args, "shift")) if getattr(args, "shift", None) is not None else 3.0,
         )
         backend = AceStepDiffusersBackend(config=cfg)
         return MusicManager(backend=backend)
@@ -536,15 +576,60 @@ def _make_manager_from_args(args: argparse.Namespace):
     raise SystemExit(f"Unknown --backend: {backend_kind!r}")
 
 
+def _native_lyrics_supported(backend_kind: str) -> bool:
+    return str(backend_kind or "").strip().lower() in {"acestep-diffusers", "acestep-v15"}
+
+
+def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Optional[str]) -> tuple[str, Optional[str], dict[str, Any]]:
+    """Resolve local prompt expansion, lyrics, and music metadata for one request."""
+
+    backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
+    duration = float(getattr(args, "duration", 10.0))
+    plan = create_prompt_plan(
+        str(prompt or ""),
+        lyrics=lyrics,
+        vocal_language=getattr(args, "vocal_language", None),
+        duration_s=duration,
+        bpm=getattr(args, "bpm", None),
+        keyscale=getattr(args, "keyscale", None),
+        timesignature=getattr(args, "timesignature", None),
+        instrumental=bool(getattr(args, "instrumental", False)),
+        enhance_prompt=bool(getattr(args, "enhance_prompt", False)),
+        structure_prompt=bool(getattr(args, "structure_prompt", True)),
+        auto_lyrics=bool(getattr(args, "auto_lyrics", False)),
+    )
+
+    request_prompt = plan.prompt
+    request_lyrics = plan.lyrics
+    if not _native_lyrics_supported(backend_kind) and isinstance(request_lyrics, str) and request_lyrics.strip():
+        request_prompt = f"{request_prompt}\n\nLyrics:\n{request_lyrics.strip()}"
+        request_lyrics = None
+
+    if bool(getattr(args, "print_plan", False)):
+        print("Effective music plan:", file=sys.stderr)
+        print(f"  prompt: {plan.prompt}", file=sys.stderr)
+        print(f"  lyrics: {plan.lyrics or 'none'}", file=sys.stderr)
+        print(f"  bpm: {plan.bpm if plan.bpm is not None else 'auto'}", file=sys.stderr)
+        print(f"  keyscale: {plan.keyscale or 'auto'}", file=sys.stderr)
+        print(f"  timesignature: {plan.timesignature or 'auto'}", file=sys.stderr)
+        print(f"  structured_prompt: {'yes' if plan.structured_prompt else 'no'}", file=sys.stderr)
+
+    metadata = {
+        "bpm": plan.bpm,
+        "keyscale": plan.keyscale,
+        "timesignature": plan.timesignature,
+        "vocal_language": plan.vocal_language,
+        "enhanced_prompt": plan.enhanced_prompt,
+        "structured_prompt": plan.structured_prompt,
+        "generated_lyrics": plan.generated_lyrics,
+        "instrumental": plan.instrumental,
+    }
+    return request_prompt, request_lyrics, metadata
+
+
 def _cmd_t2m(args: argparse.Namespace) -> int:
     mm = _make_manager_from_args(args)
-    backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
-    prompt = str(args.prompt)
-    lyrics = getattr(args, "lyrics", None)
-    if backend_kind in {"diffusers", "musicgen", "stable-audio"} and isinstance(lyrics, str) and lyrics.strip():
-        # Avoid silently ignoring lyrics for backends that do not support them.
-        prompt = f"{prompt}\n\nLyrics:\n{lyrics.strip()}"
-        lyrics = None
+    prompt, lyrics, plan_meta = _resolve_generation_text(args, str(args.prompt), getattr(args, "lyrics", None))
 
     wav = mm.t2m(
         prompt,
@@ -554,10 +639,10 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
         seed=args.seed,
         negative_prompt=args.negative,
         lyrics=lyrics,
-        vocal_language=getattr(args, "vocal_language", None),
-        bpm=getattr(args, "bpm", None),
-        keyscale=getattr(args, "keyscale", None),
-        timesignature=getattr(args, "timesignature", None),
+        vocal_language=plan_meta["vocal_language"],
+        bpm=plan_meta["bpm"],
+        keyscale=plan_meta["keyscale"],
+        timesignature=plan_meta["timesignature"],
     )
     out_path = Path(str(args.out)).expanduser()
     _write_bytes(out_path, wav)
@@ -689,6 +774,21 @@ class MusicREPL(cmd.Cmd):
         setattr(self.args, name, parsed)
         print(f"{label}: {parsed:g}")
 
+    def _set_bool_flag(self, name: str, arg: str, label: str) -> None:
+        value = str(arg or "").strip().lower()
+        if not value:
+            print(f"{label}: {'on' if bool(getattr(self.args, name, False)) else 'off'}")
+            return
+        if value in {"1", "on", "true", "yes"}:
+            setattr(self.args, name, True)
+            print(f"{label}: on")
+            return
+        if value in {"0", "off", "false", "no", "clear", "none"}:
+            setattr(self.args, name, False)
+            print(f"{label}: off")
+            return
+        print(f"Usage: /{label} [on|off]")
+
     def _generate(self, prompt: str | None = None) -> None:
         prompt = str(prompt or "").strip()
         if prompt:
@@ -700,12 +800,11 @@ class MusicREPL(cmd.Cmd):
             return
         mm = self._get_manager()
         backend_kind = str(getattr(self.args, "backend", "acestep") or "acestep").strip().lower()
-        lyrics = getattr(self.args, "lyrics", None)
-        request_prompt = prompt
-        request_lyrics = lyrics
-        if backend_kind in {"diffusers", "musicgen", "stable-audio"} and isinstance(lyrics, str) and lyrics.strip():
-            request_prompt = f"{prompt}\n\nLyrics:\n{lyrics.strip()}"
-            request_lyrics = None
+        request_prompt, request_lyrics, plan_meta = _resolve_generation_text(
+            self.args,
+            prompt,
+            getattr(self.args, "lyrics", None),
+        )
         duration = float(getattr(self.args, "duration", 10.0))
         print(f"Generating with {backend_kind} ({duration:g}s)...")
         wav = mm.t2m(
@@ -716,10 +815,10 @@ class MusicREPL(cmd.Cmd):
             seed=getattr(self.args, "seed", None),
             negative_prompt=getattr(self.args, "negative", None),
             lyrics=request_lyrics,
-            vocal_language=getattr(self.args, "vocal_language", None),
-            bpm=getattr(self.args, "bpm", None),
-            keyscale=getattr(self.args, "keyscale", None),
-            timesignature=getattr(self.args, "timesignature", None),
+            vocal_language=plan_meta["vocal_language"],
+            bpm=plan_meta["bpm"],
+            keyscale=plan_meta["keyscale"],
+            timesignature=plan_meta["timesignature"],
         )
         out_path = self._next_output_path()
         _write_bytes(out_path, wav)
@@ -757,6 +856,11 @@ class MusicREPL(cmd.Cmd):
         print("  /keyscale <text|clear>   Set target key/scale metadata")
         print("  /timesignature <n|clear> Set target time signature metadata")
         print("  /vocal-language <code|clear>")
+        print("  /enhance-prompt [on|off] Expand short prompts into richer captions")
+        print("  /structure-prompt [on|off] Add section plans for long generations")
+        print("  /auto-lyrics [on|off]    Generate simple local lyrics from the prompt")
+        print("  /instrumental [on|off]   Use the ACE-Step [Instrumental] lyrics marker")
+        print("  /print-plan [on|off]     Print effective caption, lyrics, and metadata")
         print("  /steps <n|auto>          Set inference steps")
         print("  /seed <n|auto>           Set seed")
         print("  /guidance <value|auto>   Set guidance scale")
@@ -890,6 +994,21 @@ class MusicREPL(cmd.Cmd):
     def do_vocal_language(self, arg: str) -> None:
         self._set_optional_text("vocal_language", arg, "vocal-language")
 
+    def do_enhance_prompt(self, arg: str) -> None:
+        self._set_bool_flag("enhance_prompt", arg, "enhance-prompt")
+
+    def do_structure_prompt(self, arg: str) -> None:
+        self._set_bool_flag("structure_prompt", arg, "structure-prompt")
+
+    def do_auto_lyrics(self, arg: str) -> None:
+        self._set_bool_flag("auto_lyrics", arg, "auto-lyrics")
+
+    def do_instrumental(self, arg: str) -> None:
+        self._set_bool_flag("instrumental", arg, "instrumental")
+
+    def do_print_plan(self, arg: str) -> None:
+        self._set_bool_flag("print_plan", arg, "print-plan")
+
     def do_steps(self, arg: str) -> None:
         self._set_optional_int("steps", arg, "steps")
 
@@ -987,6 +1106,11 @@ class MusicREPL(cmd.Cmd):
             ("keyscale", getattr(self.args, "keyscale", None) or "auto"),
             ("timesignature", getattr(self.args, "timesignature", None) or "auto"),
             ("vocal_language", getattr(self.args, "vocal_language", None) or "unknown"),
+            ("enhance_prompt", "on" if bool(getattr(self.args, "enhance_prompt", False)) else "off"),
+            ("structure_prompt", "on" if bool(getattr(self.args, "structure_prompt", True)) else "off"),
+            ("auto_lyrics", "on" if bool(getattr(self.args, "auto_lyrics", False)) else "off"),
+            ("instrumental", "on" if bool(getattr(self.args, "instrumental", False)) else "off"),
+            ("print_plan", "on" if bool(getattr(self.args, "print_plan", False)) else "off"),
             ("steps", getattr(self.args, "steps", None) or "auto"),
             ("seed", getattr(self.args, "seed", None) if getattr(self.args, "seed", None) is not None else "auto"),
             ("guidance", getattr(self.args, "guidance_scale", None) if getattr(self.args, "guidance_scale", None) is not None else "auto"),
