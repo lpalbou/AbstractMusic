@@ -48,6 +48,16 @@ Planner providers can be callables accepting `request_dict`, objects with
 the provider when present and falls back to the deterministic local planner. `required` raises on
 provider failure. `off` preserves raw user text.
 
+In AbstractCore plugin mode, AbstractMusic also accepts a host-supplied text service structurally
+when the owner context/config exposes `generate_text(...)` or `generate_structured(...)`. This keeps
+LLM planning injectable without adding an AbstractCore dependency or passing raw provider objects
+into AbstractMusic.
+
+The plugin capability object exposes AbstractCore-friendly discovery methods:
+`available_providers(task=...)`, `list_models(task=..., provider=...)`,
+`list_provider_models(...)`, `list_operations(task=...)`, and `capability_catalog(task=...)`.
+They use the packaged model capability registry and do not load model weights.
+
 ## Request Fields
 
 Core fields:

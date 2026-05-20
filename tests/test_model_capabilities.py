@@ -138,8 +138,12 @@ def test_import_abstractmusic_does_not_import_heavy_stacks():
 
 @pytest.mark.unit
 def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
-    import tomllib
     from pathlib import Path
+
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+        import tomli as tomllib  # type: ignore[no-redef]
 
     data = tomllib.loads(Path("pyproject.toml").read_text())
     deps = {str(d).split(">=")[0].split("<")[0].split("[")[0].lower() for d in data["project"].get("dependencies", [])}

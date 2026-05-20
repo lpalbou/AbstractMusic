@@ -38,6 +38,15 @@ base package import-light and usable as a standalone local music library.
   AbstractCore capability plugin without importing AbstractCore directly. It reads owner/config
   values and supports backend injection plus `music_text_planner`,
   `music_text_planner_instance`, and `music_text_planner_factory`.
+- The AbstractCore plugin also accepts a structurally supplied host text-generation service when
+  the owner context/config exposes `generate_text(...)` or `generate_structured(...)`. This is the
+  first compatibility layer for the proposed AbstractCore `CoreTextGenerationService` contract and
+  still avoids an AbstractCore import or raw provider access.
+- The AbstractCore plugin exposes lightweight discovery methods:
+  `available_providers(...)`, `list_models(...)`, `list_provider_models(...)`,
+  `list_operations(...)`, and `capability_catalog(...)`. These are backed by packaged metadata and
+  are intended to satisfy AbstractCore's generic provider/model/operation discovery without loading
+  model runtimes.
 - `../abstractvoice/abstractvoice/examples/llm_provider.py` demonstrates a tiny
   OpenAI-compatible local LLM client for Ollama/LM Studio. AbstractVoice docs describe it as an
   example/demo surface; production agent/server orchestration should remain with AbstractCore.
@@ -86,8 +95,12 @@ Evaluate the remaining integration modes before adding any provider:
    stdlib HTTP or a small optional extra, with presets for Ollama and LM Studio. This should be
    explicit and disabled by default.
 3. AbstractCore integration: let AbstractCore supply a real adapter through the existing
-   `music_text_planner` / `music_text_planner_factory` hook, without AbstractMusic importing
-   AbstractCore.
+   `music_text_planner` / `music_text_planner_factory` hook, or through its proposed narrow
+   host text service (`generate_text(...)` / `generate_structured(...)`), without AbstractMusic
+   importing AbstractCore.
+4. AbstractCore discovery: keep the plugin's provider/model/operation catalog methods aligned
+   with Core's generic capability contract so Core does not need AbstractMusic-specific private
+   adapters.
 
 The likely long-term shape remains fallback plus injection first, then an optional
 OpenAI-compatible local provider if the contract proves stable.

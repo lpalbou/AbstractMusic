@@ -140,6 +140,15 @@ Host applications can inject a smarter planner without making AbstractMusic depe
 plan is then applied deterministically per backend, and planner provenance is stored in output
 metadata.
 
+When AbstractMusic is hosted by AbstractCore, it can also consume a narrow host text-generation
+service structurally if one is supplied by the host context or config. The service must expose only
+`generate_text(...)` and/or `generate_structured(...)`; AbstractMusic does not import AbstractCore,
+does not receive raw provider objects, and keeps the deterministic fallback for standalone use.
+
+The AbstractCore plugin also exposes lightweight music discovery methods (`available_providers`,
+`list_models`, `list_provider_models`, `list_operations`, and `capability_catalog`) from packaged
+metadata. These methods are import-light and must not instantiate model runtimes.
+
 ## Licensing note
 
 - The default backend example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.

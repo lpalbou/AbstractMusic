@@ -28,6 +28,16 @@ through AbstractCore plugin config (`music_text_planner`, `music_text_planner_in
 `music_text_planner_factory`). This keeps the intelligence layer swappable while preserving a stable
 backend request contract.
 
+When hosted by AbstractCore, the plugin may also use a narrow host text-generation service if the
+host supplies one structurally through context/config. AbstractMusic only calls `generate_text(...)`
+or `generate_structured(...)`, records planner provenance, and never receives raw AbstractCore
+provider/facade objects.
+
+The plugin surface is bidirectional: AbstractCore can also discover AbstractMusic providers,
+models, and operations through lightweight `available_providers(...)`, `list_models(...)`,
+`list_operations(...)`, and `capability_catalog(...)` methods. These discovery methods read the
+packaged model metadata and must not load generation backends.
+
 ## Dependency Boundary
 
 Heavy runtime stacks must be imported lazily. The base package stays focused on contracts, manager
