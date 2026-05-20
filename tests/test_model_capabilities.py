@@ -83,17 +83,33 @@ def test_stable_audio_registry_metadata():
 
 
 @pytest.mark.unit
-def test_acestep_v15_registry_recommends_official_backend_not_custom_path():
+def test_acestep_v15_registry_tracks_quality_limited_standalone_backend():
     from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
 
     spec = MusicModelCapabilitiesRegistry().get("ACE-Step/Ace-Step1.5")
 
-    assert spec.recommended is True
-    assert spec.status == "official-backend-implemented-custom-invalid"
-    assert "acestep-official" in spec.backend_kinds
+    assert spec.recommended is False
+    assert spec.status == "quality-limited-standalone-v15"
+    assert spec.backend_kinds[0] == "acestep-v15"
     assert spec.supports_guidance_scale is False
-    assert "rotor-like" in spec.notes
-    assert "custom backend" in spec.notes
+    assert spec.supports_negative_prompt is False
+    assert spec.dependency_extra == "acestep"
+    assert "`acestep-v15`" in spec.notes
+    assert "external ACE-Step source tree or package" in spec.notes
+    assert "5Hz LM audio-code planner is opt-in" in spec.notes
+
+
+@pytest.mark.unit
+def test_acestep_diffusers_registry_tracks_default_route():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-xl-turbo-diffusers")
+
+    assert spec.recommended is True
+    assert spec.status == "validated-cpu-fallback"
+    assert spec.backend_kinds[0] == "acestep-diffusers"
+    assert spec.dependency_extra == "acestep-diffusers"
+    assert "Default `acestep` route" in spec.notes
 
 
 @pytest.mark.unit
@@ -135,7 +151,7 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
     extras = data["project"]["optional-dependencies"]
     for extra in [
         "acestep",
-        "acestep-official",
+        "acestep-v15",
         "acestep-diffusers",
         "diffusers",
         "local",

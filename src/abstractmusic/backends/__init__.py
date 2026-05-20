@@ -10,8 +10,6 @@ __all__ = [
     "MusicBackend",
     "AceStepV15Backend",
     "AceStepV15BackendConfig",
-    "AceStepOfficialBackend",
-    "AceStepOfficialBackendConfig",
     "AceStepDiffusersBackend",
     "AceStepDiffusersBackendConfig",
     "DiffusersAudioBackend",
@@ -28,10 +26,6 @@ def __getattr__(name: str):
         from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 
         return AceStepV15Backend if name == "AceStepV15Backend" else AceStepV15BackendConfig
-    if name in {"AceStepOfficialBackend", "AceStepOfficialBackendConfig"}:
-        from .acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
-
-        return AceStepOfficialBackend if name == "AceStepOfficialBackend" else AceStepOfficialBackendConfig
     if name in {"AceStepDiffusersBackend", "AceStepDiffusersBackendConfig"}:
         from .acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
 

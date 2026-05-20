@@ -5,8 +5,8 @@ This registers a `music` capability backend discovered by AbstractCore via the
 `abstractcore.capabilities_plugins` entry point group.
 
 Default backend:
-- Local ACE-Step v1.5 pipeline (in-process; no external server required).
-- Local ACE-Step Diffusers XL pipeline (alternative; in-process).
+- Local ACE-Step Diffusers XL pipeline (default; in-process).
+- Local ACE-Step v1.5 pipeline (explicit quality-limited backend).
 - Local Diffusers audio pipeline (alternative; in-process).
 """
 
@@ -255,7 +255,7 @@ class _AbstractMusicAceStepDiffusersCapability(_AbstractMusicCapabilityBase):
 
 
 class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
-    """AbstractCore MusicCapability using ACE-Step v1.5 (local, in-process)."""
+    """AbstractCore MusicCapability using the standalone ACE-Step v1.5 path."""
 
     backend_id = "abstractmusic:acestep-v15"
 
@@ -292,73 +292,26 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
         return self._backend
 
 
-class _AbstractMusicAceStepOfficialCapability(_AbstractMusicCapabilityBase):
-    """AbstractCore MusicCapability using the upstream ACE-Step runtime."""
-
-    backend_id = "abstractmusic:acestep-official"
-
-    def _get_backend(self):
-        if self._backend is not None:
-            return self._backend
-
-        try:
-            return super()._get_backend()
-        except NotImplementedError:
-            pass
-
-        repo_id = _require_model_id(self._owner) or "ACE-Step/Ace-Step1.5"
-        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
-        source_dir = _owner_cfg(self._owner, "music_acestep_source_dir") or _env("ABSTRACTMUSIC_ACESTEP_SOURCE_DIR")
-        checkpoint_dir = _owner_cfg(self._owner, "music_acestep_checkpoint_dir") or _env("ABSTRACTMUSIC_ACESTEP_CHECKPOINT_DIR")
-        lm_model_path = _owner_cfg(self._owner, "music_lm_model_path") or _env(
-            "ABSTRACTMUSIC_ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-1.7B"
-        )
-        lm_backend = _owner_cfg(self._owner, "music_lm_backend") or _env("ABSTRACTMUSIC_ACESTEP_LM_BACKEND", "auto")
-
-        from ..backends.acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
-
-        cfg = AceStepOfficialBackendConfig(
-            repo_id=str(repo_id),
-            source_dir=str(source_dir).strip() if source_dir else None,
-            checkpoint_dir=str(checkpoint_dir).strip() if checkpoint_dir else None,
-            lm_model_path=str(lm_model_path or "acestep-5Hz-lm-1.7B"),
-            lm_backend=str(lm_backend or "auto"),
-            device=str(device or "auto"),
-        )
-        self._backend = AceStepOfficialBackend(config=cfg)
-        return self._backend
-
-
 def register(registry: Any) -> None:
     """Register AbstractMusic as an AbstractCore capability plugin."""
 
     registry.register_music_backend(
-        backend_id=_AbstractMusicAceStepOfficialCapability.backend_id,
-        factory=lambda owner: _AbstractMusicAceStepOfficialCapability(owner),
-        priority=20,
-        description="AbstractMusic local generation via the official ACE-Step runtime and 5Hz LM.",
-        config_hint="Optional: set music_model_id to 'ACE-Step/Ace-Step1.5'. On Apple Silicon this "
-        "prefers the official MLX LM path when available. Set music_acestep_source_dir or "
-        "ABSTRACTMUSIC_ACESTEP_SOURCE_DIR if ACE-Step is not installed.",
+        backend_id=_AbstractMusicAceStepDiffusersCapability.backend_id,
+        factory=lambda owner: _AbstractMusicAceStepDiffusersCapability(owner),
+        priority=30,
+        description="AbstractMusic ACE-Step Diffusers XL Turbo path (in-process, package-owned adapter).",
+        config_hint="Optional: set music_model_id to a HF repo id "
+        "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). "
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
     )
 
     registry.register_music_backend(
         backend_id=_AbstractMusicAceStepV15Capability.backend_id,
         factory=lambda owner: _AbstractMusicAceStepV15Capability(owner),
-        priority=10,
-        description="AbstractMusic local generation via ACE-Step v1.5 (in-process).",
+        priority=5,
+        description="AbstractMusic standalone ACE-Step v1.5 path (explicit quality-limited backend).",
         config_hint="Optional: set music_model_id to a HF repo id (default: 'ACE-Step/Ace-Step1.5'). "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
-    )
-
-    registry.register_music_backend(
-        backend_id=_AbstractMusicAceStepDiffusersCapability.backend_id,
-        factory=lambda owner: _AbstractMusicAceStepDiffusersCapability(owner),
-        priority=5,
-        description="AbstractMusic local generation via ACE-Step Diffusers XL Turbo (in-process).",
-        config_hint="Optional: set music_model_id to a HF repo id "
-        "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). "
-        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float16'/'bfloat16'.",
     )
 
     registry.register_music_backend(

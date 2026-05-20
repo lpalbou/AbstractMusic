@@ -8,18 +8,18 @@
 
 ## Context
 
-The official ACE-Step path can generate valid 48 kHz WAV files with harmonic content, but user
-listening and follow-up spectral self-similarity checks show that short instrumental outputs can be
-dominated by repetitive note/pulse patterns. The existing smoke checks catch silence, clipping,
-white noise, and rotor-like fast envelopes, but they do not catch musically repetitive loops.
+ACE-Step paths can generate valid 48 kHz WAV files with harmonic content, but user listening and
+follow-up spectral self-similarity checks show that outputs can be dominated by repetitive
+note/pulse patterns. The existing smoke checks catch silence, clipping, white noise, and rotor-like
+fast envelopes, but they do not catch musically repetitive loops.
 
 ## Current code reality
 
-- `src/abstractmusic/backends/acestep_official.py` wraps upstream ACE-Step and now exposes the
-  important turbo controls: 1.7B LM default, `shift=3.0`, LM sampling controls, and
-  `audio_cover_strength`.
-- `src/abstractmusic/audio_analysis.py` reports harmonic and fast-envelope metrics, but it does
-  not report longer-range spectral self-similarity or musical novelty.
+- `src/abstractmusic/backends/acestep_v15.py` is the default standalone package backend. Its 5Hz
+  audio-code planner is opt-in because full-cover conditioning from coarse code hints can imprint
+  repetitive artifacts.
+- `src/abstractmusic/audio_analysis.py` reports harmonic diversity and spectrotemporal modulation
+  metrics, including longer-range similarity checks.
 - Recent trial files in `smoke-artifacts/user-repl/` show high self-similarity at 1-4 second lags
   even when `music_like=True`.
 
@@ -58,7 +58,7 @@ repeated timbre/harmony without requiring heavyweight audio libraries.
 
 - `src/abstractmusic/audio_analysis.py`
 - `tests/test_audio_analysis.py`
-- `src/abstractmusic/backends/acestep_official.py` metadata passthrough
+- `src/abstractmusic/backends/acestep_v15.py` metadata passthrough
 - `docs/models.md` and backlog status notes
 
 ## Non-goals
@@ -70,7 +70,7 @@ repeated timbre/harmony without requiring heavyweight audio libraries.
 ## Dependencies and related tasks
 
 - `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
-- `docs/backlog/completed/025_official_acestep_v15_mlx_provider.md`
+- `docs/backlog/completed/040_real_generation_validation_matrix.md`
 
 ## Expected outcomes
 
@@ -97,7 +97,6 @@ failures and make the recommendation status honest.
 
 ## Progress Notes
 
-2026-05-15: Online/upstream review found that ACE-Step turbo explicitly does not use CFG and
-upstream clamps turbo `guidance_scale` to `1.0` to avoid noisy/NaN float16 behavior. AbstractMusic
-now treats the default official turbo path as guidance-unsupported and defaults turbo guidance to
-`1.0`; this is a correctness cleanup, not a fix for the repetitive-output quality failure.
+2026-05-15: Review found that ACE-Step turbo does not use CFG in the packaged v1.5 turbo path.
+AbstractMusic treats turbo ACE-Step as guidance-unsupported; this is a correctness cleanup, not a
+fix for repetitive-output quality failures.

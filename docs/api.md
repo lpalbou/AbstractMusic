@@ -54,11 +54,11 @@ The registry is metadata only. It must not silently change the configured provid
 
 ## Built-In Backend Kinds
 
-- `acestep`: custom ACE-Step v1.5 backend for `ACE-Step/Ace-Step1.5`.
-- `acestep-official`: upstream ACE-Step v1.5 handler plus 5Hz LM planner for
-  `ACE-Step/Ace-Step1.5`; recommended ACE-Step path.
-- `acestep-diffusers`: ACE-Step Diffusers adapter for
+- `acestep`: default ACE-Step Diffusers XL Turbo backend.
+- `acestep-diffusers`: explicit name for the default ACE-Step Diffusers adapter for
   `ACE-Step/acestep-v15-xl-turbo-diffusers`.
+- `acestep-v15`: explicit quality-limited ACE-Step v1.5 backend, using vendored model code and
+  package-owned orchestration.
 - `diffusers`: generic Diffusers audio backend for compatible audio pipelines.
 - `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
 - `stable-audio`: stable-audio-tools adapter for `stabilityai/stable-audio-open-small`

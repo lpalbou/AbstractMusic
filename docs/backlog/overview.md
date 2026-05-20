@@ -3,28 +3,25 @@
 ## Current status
 
 AbstractMusic has a thin public manager, a minimal backend protocol, a generic Diffusers audio
-backend, an official ACE-Step v1.5 adapter, an ACE-Step v1.5 custom backend, an ACE-Step Diffusers
-adapter, and an AbstractCore capability plugin. The custom ACE-Step smoke is considered a failed
-music-quality validation: it produced valid PCM that sounded and measured like fast rotor-like
-audio.
+backend, a standalone ACE-Step v1.5 backend, an ACE-Step Diffusers adapter, and an AbstractCore
+capability plugin. The standalone ACE-Step path is the only ACE-Step v1.5 runtime path in the
+package and must not call a local ACE-Step source checkout or external ACE-Step package.
 
 The repository has the baseline docs, hygiene files, import-light packaging, a model registry, a
-CLI REPL, and a real smoke validation harness now. A direct upstream ACE-Step v1.5 prototype with
-the official 0.6B 5Hz LM on MLX generated a 10-second music-like WAV on 2026-05-15, and that path
-is now wrapped as `acestep-official`. The 1.7B 5Hz LM has since been downloaded, validated through
-the CLI, and made the default because the 0.6B results were too weak for the target quality bar.
+CLI REPL, and a real smoke validation harness. Previous external-runtime experiments are no longer
+supported provider paths; accepted reference WAVs remain comparison artifacts only.
 
 ## Status counts
 
 - Planned: 9
 - Proposed: 1
-- Completed: 5
-- Deprecated: 0
+- Completed: 4
+- Deprecated: 1
 - Recurrent: 2
 
 ## Priority bands
 
-- P0: keep the validated official ACE-Step path reliable and user-tryable through the REPL.
+- P0: make the standalone ACE-Step backend produce usable music through internal package code.
 - P0: add a repetition/novelty quality gate before calling ACE-Step output production-quality.
 - P1: add a small MusicGen validation backend so ACE-Step quality can be judged against a known
   small text-to-music baseline.
@@ -64,7 +61,6 @@ the CLI, and made the default because the 0.6B results were too weak for the tar
 | 2026-05-15 | `completed/000_critical_assessment_and_roadmap.md` | Preserved the assessment and created the implementation roadmap. |
 | 2026-05-15 | `completed/010_repo_hygiene_docs_and_packaging.md` | Added repo/docs baseline, license/security/contribution files, ignore rules, and cleaned generated tracked artifacts. |
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
-| 2026-05-15 | `completed/025_official_acestep_v15_mlx_provider.md` | Added and validated the official ACE-Step backend through the public abstraction using MLX LM/DiT/VAE on Apple Silicon. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
 
 ## Proposed work
@@ -72,6 +68,12 @@ the CLI, and made the default because the 0.6B results were too weak for the tar
 | Item | Promotion criteria |
 | --- | --- |
 | `proposed/2026-05-08_music_install_profile_boundary.md` | Promote when the dependency-profile split becomes implementation work. |
+
+## Deprecated work
+
+| Deprecated | Item | Reason |
+| --- | --- | --- |
+| 2026-05-20 | `deprecated/0025_external_acestep_runtime_wrapper.md` | Removed the out-of-package ACE-Step runtime wrapper path; standalone package code is required. |
 
 ## Completion process
 
@@ -85,16 +87,14 @@ When a planned item is complete:
 
 ## Planning notes
 
-- ACE-Step v1.5 should use `acestep-official`; the older custom backend remains non-recommended
-  because it produced rotor-like audio.
-- `acestep-official` passed 10-second harmonic music smokes through AbstractMusic on 2026-05-15
-  using both official 0.6B and 1.7B LMs with MLX LM, MLX DiT, and MLX VAE. The 1.7B LM is now the
-  default.
-- On Apple hardware, prefer an official MLX path when a provider actually supports it; otherwise
-  use PyTorch MPS. CPU should be a clearly marked fallback, not the default accelerated path.
+- ACE-Step v1.5 must use the standalone `acestep` / `acestep-v15` package backend.
+- Previous external-runtime smoke artifacts remain useful as references, but they do not prove the
+  standalone package path works.
+- On Apple hardware, prefer PyTorch MPS for the standalone ACE-Step backend with clear CPU
+  fallbacks for known unstable text-encoder/decode steps.
 - No additional model should be marked recommended until it passes a real generation smoke test
   through AbstractMusic.
-- The official ACE-Step XL Turbo Diffusers checkpoint is the cleanest near-term improvement path
+- The ACE-Step XL Turbo Diffusers checkpoint is the cleanest near-term improvement path
   because it uses a standard Diffusers pipeline layout and `AceStepPipeline`.
 - `facebook/musicgen-small` is a useful small validation provider because it has a simple
   Transformers path and 300M weights, but it is CC BY-NC 4.0 and must not become the commercial

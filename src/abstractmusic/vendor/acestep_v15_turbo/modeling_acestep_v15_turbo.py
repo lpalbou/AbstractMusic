@@ -41,6 +41,7 @@ from transformers.models.qwen3.modeling_qwen3 import (
 # NOTE: We vendor the minimal quantizer code (MIT) to avoid depending on
 # `vector-quantize-pytorch` (and its transitive deps) at runtime.
 from .vq_residual_fsq import ResidualFSQ
+from .dcw import DCWCorrector
 
 # Local config import with fallback
 try:
@@ -1854,6 +1855,10 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         audio_codes: Optional[torch.FloatTensor] = None,
         shift: float = 3.0,
         timesteps: Optional[torch.Tensor] = None,
+        dcw_enabled: bool = True,
+        dcw_mode: str = "double",
+        dcw_scaler: float = 0.05,
+        dcw_high_scaler: float = 0.02,
         **kwargs,
     ):
         # Valid shifts: only discrete values 1, 2, 3 are supported
@@ -1975,6 +1980,12 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
         num_steps = len(t_schedule)
         
         # Recalculate cover_steps based on actual num_steps
+        dcw_corrector = DCWCorrector(
+            enabled=dcw_enabled,
+            mode=dcw_mode,
+            scaler=dcw_scaler,
+            high_scaler=dcw_high_scaler,
+        )
         cover_steps = int(num_steps * audio_cover_strength)
         
         xt = noise
@@ -2003,10 +2014,16 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 
             vt = decoder_outputs[0]
             past_key_values = decoder_outputs[1]
+            xt_before_step = xt
+            vt_for_denoise = vt
             
             # On final step, directly compute x0 from noise
             if step_idx == num_steps - 1:
                 xt = self.get_x0_from_noise(xt, vt, t_curr_tensor)
+                if dcw_corrector.is_active:
+                    t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                    denoised = xt_before_step - vt_for_denoise * t_unsq
+                    xt = dcw_corrector.apply(xt, denoised, current_timestep)
                 break
             
             # Update x_t based on inference method
@@ -2022,6 +2039,11 @@ class AceStepConditionGenerationModel(AceStepPreTrainedModel):
                 dt = current_timestep - next_timestep
                 dt_tensor = dt * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
                 xt = xt - vt * dt_tensor
+
+            if dcw_corrector.is_active:
+                t_unsq = current_timestep * torch.ones((bsz,), device=device, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
+                denoised = xt_before_step - vt_for_denoise * t_unsq
+                xt = dcw_corrector.apply(xt, denoised, current_timestep)
         
         x_gen = xt
         end_time = time.time()

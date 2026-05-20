@@ -124,7 +124,15 @@ def _coerce_waveform_to_np(audio: Any) -> Tuple[Any, int]:
         if int(audio.shape[0]) <= 8 and int(audio.shape[1]) > int(audio.shape[0]):
             return audio.T, int(audio.shape[0])
         return audio, int(audio.shape[1])
-    raise ValueError("Unsupported ACE-Step audio array shape; expected 1D or 2D waveform")
+    if audio.ndim == 3:
+        # Diffusers AceStepPipeline may return a batched tensor shaped
+        # [batch, channels, samples] or [batch, samples, channels]. The CLI
+        # writes one file, so select the first batch item and reuse 2D handling.
+        if int(audio.shape[0]) >= 1:
+            return _coerce_waveform_to_np(audio[0])
+        if int(audio.shape[1]) >= 1:
+            return _coerce_waveform_to_np(audio[:, 0, :])
+    raise ValueError("Unsupported ACE-Step audio array shape; expected 1D, 2D, or batched 3D waveform")
 
 
 def _encode_wav_bytes(audio: Any, *, sample_rate: int) -> bytes:
@@ -135,6 +143,8 @@ def _encode_wav_bytes(audio: Any, *, sample_rate: int) -> bytes:
         x = x[:, None]
     elif x.ndim != 2:
         raise ValueError("Unsupported audio array shape after coercion")
+    if not bool(np.isfinite(x).all()):
+        raise ValueError("ACE-Step Diffusers pipeline returned non-finite audio")
     x = np.clip(x, -1.0, 1.0)
     pcm = (x * 32767.0).astype("<i2", copy=False)
 
@@ -158,7 +168,7 @@ class AceStepDiffusersBackendConfig:
     guidance_scale: Optional[float] = None
     shift: Optional[float] = 3.0
     enable_vae_tiling: bool = True
-    auto_retry_cpu_on_mps_error: bool = False
+    auto_retry_cpu_on_mps_error: bool = True
 
 
 class AceStepDiffusersBackend:
@@ -293,16 +303,43 @@ class AceStepDiffusersBackend:
             else:
                 raise
 
-        audios = getattr(out, "audios", None)
-        if audios is None and isinstance(out, dict):
-            audios = out.get("audios") or out.get("audio")
-        if audios is None:
-            raise ValueError("AceStepPipeline did not return .audios")
-        audio0 = audios[0] if isinstance(audios, (list, tuple)) else audios
-
         sr = getattr(pipe, "sample_rate", None)
         sample_rate = int(sr) if isinstance(sr, int) and sr > 0 else 48000
-        wav_bytes = _encode_wav_bytes(audio0, sample_rate=sample_rate)
+
+        def _first_audio(output: Any) -> Any:
+            audios = getattr(output, "audios", None)
+            if audios is None and isinstance(output, dict):
+                audios = output.get("audios") or output.get("audio")
+            if audios is None:
+                raise ValueError("AceStepPipeline did not return .audios")
+            return audios[0] if isinstance(audios, (list, tuple)) else audios
+
+        try:
+            wav_bytes = _encode_wav_bytes(_first_audio(out), sample_rate=sample_rate)
+        except ValueError as e:
+            msg = str(e)
+            is_mps = str(self._pipe_device or "").strip().lower() == "mps"
+            if is_mps and "non-finite audio" in msg and bool(self._config.auto_retry_cpu_on_mps_error):
+                print(
+                    "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
+                    "retrying on CPU float32.",
+                    file=sys.stderr,
+                )
+                fallback_events.append("mps_nonfinite_audio_cpu_retry")
+                self._pipe = None
+                self._pipe_device = None
+                self._pipe_dtype = None
+                self._config = replace(self._config, device="cpu", torch_dtype="float32")
+                pipe = self._load_pipe()
+                kwargs = dict(kwargs)
+                if "generator" in kwargs and isinstance(request.seed, int) and request.seed >= 0:
+                    kwargs["generator"] = torch.Generator(device="cpu").manual_seed(int(request.seed))
+                out = self._run_pipe(pipe, kwargs)
+                sr = getattr(pipe, "sample_rate", None)
+                sample_rate = int(sr) if isinstance(sr, int) and sr > 0 else 48000
+                wav_bytes = _encode_wav_bytes(_first_audio(out), sample_rate=sample_rate)
+            else:
+                raise
         stats = inspect_wav_bytes(wav_bytes)
 
         metadata: Dict[str, Any] = {

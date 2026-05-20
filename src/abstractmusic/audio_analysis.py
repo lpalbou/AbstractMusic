@@ -102,6 +102,160 @@ class MusicSignalStats:
         return self.has_harmonic_structure
 
 
+@dataclass(frozen=True)
+class HarmonicDiversityStats:
+    """Time-local harmonic and spectral-motion metrics for generated music.
+
+    These metrics are meant to catch collapsed ACE-Step style failures where a
+    WAV is non-silent and harmonic but repeats one pitch or one narrow texture.
+    They are not a general musical-quality score.
+    """
+
+    wav: WavAudioStats
+    voiced_frame_ratio: float
+    f0_median_hz: float
+    f0_iqr_hz: float
+    midi_pitch_iqr: float
+    midi_unique_notes: int
+    spectral_centroid_mean_hz: float
+    spectral_centroid_cv: float
+    spectral_entropy_mean: float
+    spectral_entropy_cv: float
+    chroma_effective_rank: float
+    chroma_delta_mean: float
+
+    @property
+    def has_pitch_diversity(self) -> bool:
+        return self.midi_unique_notes >= 8 or self.midi_pitch_iqr >= 3.0
+
+    @property
+    def has_spectral_motion(self) -> bool:
+        return self.spectral_centroid_cv >= 0.12 and self.spectral_entropy_cv >= 0.08
+
+    @property
+    def is_probably_low_pitch_variety(self) -> bool:
+        return self.voiced_frame_ratio >= 0.20 and self.midi_unique_notes <= 16 and self.midi_pitch_iqr < 2.0
+
+    @property
+    def is_probably_single_note_collapse(self) -> bool:
+        if self.wav.is_probably_noise_or_invalid or self.wav.is_probably_silent:
+            return False
+        narrow_pitch = self.is_probably_low_pitch_variety
+        static_spectrum = self.spectral_centroid_cv < 0.20 or self.spectral_entropy_cv < 0.12
+        return narrow_pitch and static_spectrum
+
+
+@dataclass(frozen=True)
+class HarmonicDiversityComparison:
+    """Reference-relative harmonic diversity comparison."""
+
+    reference: HarmonicDiversityStats
+    candidate: HarmonicDiversityStats
+    midi_unique_ratio: float
+    midi_pitch_iqr_ratio: float
+    spectral_centroid_cv_ratio: float
+    spectral_entropy_cv_ratio: float
+    chroma_rank_ratio: float
+
+    @property
+    def passes_reference_floor(self) -> bool:
+        if self.candidate.wav.is_probably_noise_or_invalid:
+            return False
+        if self.candidate.is_probably_single_note_collapse or self.candidate.is_probably_low_pitch_variety:
+            return False
+        if self.reference.midi_unique_notes >= 8 and self.midi_unique_ratio < 0.45:
+            return False
+        if self.reference.midi_pitch_iqr >= 3.0 and self.midi_pitch_iqr_ratio < 0.30:
+            return False
+        if self.reference.spectral_centroid_cv >= 0.12 and self.spectral_centroid_cv_ratio < 0.35:
+            return False
+        if self.reference.spectral_entropy_cv >= 0.08 and self.spectral_entropy_cv_ratio < 0.35:
+            return False
+        return True
+
+
+@dataclass(frozen=True)
+class SpectroTemporalModulationStats:
+    """Subband envelope modulation metrics for clock-like generated artifacts."""
+
+    wav: WavAudioStats
+    subband_edges_hz: tuple[tuple[float, float], ...]
+    subband_energy_share: tuple[float, ...]
+    subband_peak_hz: tuple[float, ...]
+    subband_peak_ratio: tuple[float, ...]
+    aligned_peak_hz: float
+    aligned_band_count: int
+    aligned_band_fraction: float
+    aligned_peak_ratio_mean: float
+    broadband_repetition_score: float
+    broadband_fast_modulation_ratio_mean: float
+    high_band_fast_modulation_ratio_mean: float
+    modulation_entropy_p25: float
+    long_lag_similarity_mean: float
+    long_lag_similarity_min: float
+    highband_dominant_modulation_hz: float
+    highband_fast_modulation_ratio: float
+    highband_peak_iqr_hz: float
+    highband_peak_bin_occupancy: float
+
+    @property
+    def is_probably_broadband_repetition_artifact(self) -> bool:
+        slow_pump_artifact = (
+            self.aligned_band_count >= 4
+            and self.aligned_peak_ratio_mean >= 0.45
+            and self.broadband_repetition_score >= 0.35
+            and 1.8 <= self.aligned_peak_hz <= 7.0
+        )
+        fast_clock_artifact = (
+            self.broadband_fast_modulation_ratio_mean >= 0.50
+            and self.high_band_fast_modulation_ratio_mean >= 0.70
+            and self.modulation_entropy_p25 <= 0.35
+        )
+        return (
+            slow_pump_artifact
+            or fast_clock_artifact
+            or self.is_probably_repeated_high_frequency_pulse
+            or self.is_probably_static_spectral_loop
+        )
+
+    @property
+    def is_probably_slow_pump_artifact(self) -> bool:
+        return (
+            self.aligned_band_count >= 4
+            and self.aligned_peak_ratio_mean >= 0.45
+            and self.broadband_repetition_score >= 0.35
+            and 1.8 <= self.aligned_peak_hz <= 7.0
+        )
+
+    @property
+    def is_probably_fast_clock_artifact(self) -> bool:
+        return (
+            self.broadband_fast_modulation_ratio_mean >= 0.50
+            and self.high_band_fast_modulation_ratio_mean >= 0.70
+            and self.modulation_entropy_p25 <= 0.35
+        )
+
+    @property
+    def is_probably_repeated_high_frequency_pulse(self) -> bool:
+        return (
+            self.long_lag_similarity_mean >= 0.85
+            and self.long_lag_similarity_min >= 0.75
+            and self.highband_fast_modulation_ratio >= 0.75
+            and 6.0 <= self.highband_dominant_modulation_hz <= 20.0
+            and self.highband_peak_iqr_hz <= 1200.0
+            and self.highband_peak_bin_occupancy >= 0.50
+        )
+
+    @property
+    def is_probably_static_spectral_loop(self) -> bool:
+        return (
+            self.long_lag_similarity_mean >= 0.70
+            and self.long_lag_similarity_min >= 0.65
+            and self.highband_peak_iqr_hz <= 750.0
+            and self.highband_peak_bin_occupancy >= 0.70
+        )
+
+
 def inspect_wav_file(path: Union[str, Path]) -> WavAudioStats:
     """Inspect a WAV file path."""
 
@@ -174,6 +328,67 @@ def inspect_music_signal_bytes(data: bytes) -> MusicSignalStats:
     wav_stats = inspect_wav_bytes(data)
     samples = _wav_bytes_to_mono_float_array(data)
     return _inspect_music_samples(samples, wav_stats)
+
+
+def inspect_harmonic_diversity_file(path: Union[str, Path]) -> HarmonicDiversityStats:
+    """Inspect a WAV path for pitch diversity and time-local spectral motion."""
+
+    expanded = Path(path).expanduser()
+    data = expanded.read_bytes()
+    return inspect_harmonic_diversity_bytes(data)
+
+
+def inspect_harmonic_diversity_bytes(data: bytes) -> HarmonicDiversityStats:
+    """Inspect WAV bytes for pitch diversity and time-local spectral motion."""
+
+    wav_stats = inspect_wav_bytes(data)
+    samples = _wav_bytes_to_mono_float_array(data)
+    return _inspect_harmonic_diversity_samples(samples, wav_stats)
+
+
+def compare_harmonic_diversity_files(
+    reference_path: Union[str, Path],
+    candidate_path: Union[str, Path],
+) -> HarmonicDiversityComparison:
+    """Compare a candidate WAV against a reference using collapse-sensitive metrics."""
+
+    return compare_harmonic_diversity(
+        inspect_harmonic_diversity_file(reference_path),
+        inspect_harmonic_diversity_file(candidate_path),
+    )
+
+
+def compare_harmonic_diversity(
+    reference: HarmonicDiversityStats,
+    candidate: HarmonicDiversityStats,
+) -> HarmonicDiversityComparison:
+    """Compare two harmonic-diversity stat blocks."""
+
+    return HarmonicDiversityComparison(
+        reference=reference,
+        candidate=candidate,
+        midi_unique_ratio=float(candidate.midi_unique_notes) / max(float(reference.midi_unique_notes), 1.0),
+        midi_pitch_iqr_ratio=float(candidate.midi_pitch_iqr) / max(float(reference.midi_pitch_iqr), 1e-9),
+        spectral_centroid_cv_ratio=float(candidate.spectral_centroid_cv) / max(float(reference.spectral_centroid_cv), 1e-9),
+        spectral_entropy_cv_ratio=float(candidate.spectral_entropy_cv) / max(float(reference.spectral_entropy_cv), 1e-9),
+        chroma_rank_ratio=float(candidate.chroma_effective_rank) / max(float(reference.chroma_effective_rank), 1e-9),
+    )
+
+
+def inspect_spectrotemporal_modulation_file(path: Union[str, Path]) -> SpectroTemporalModulationStats:
+    """Inspect subband modulation spectra for broadband repeated artifacts."""
+
+    expanded = Path(path).expanduser()
+    data = expanded.read_bytes()
+    return inspect_spectrotemporal_modulation_bytes(data)
+
+
+def inspect_spectrotemporal_modulation_bytes(data: bytes) -> SpectroTemporalModulationStats:
+    """Inspect WAV bytes for broadband spectrotemporal modulation dominance."""
+
+    wav_stats = inspect_wav_bytes(data)
+    samples = _wav_bytes_to_mono_float_array(data)
+    return _inspect_spectrotemporal_modulation_samples(samples, wav_stats)
 
 
 def _pcm_to_float_samples(raw: bytes, *, sample_width: int) -> list[float]:
@@ -368,6 +583,399 @@ def _inspect_music_samples(samples: Any, wav_stats: WavAudioStats) -> MusicSigna
         beat_modulation_ratio=beat_ratio,
         dominant_envelope_hz=dominant_env,
     )
+
+
+def _inspect_harmonic_diversity_samples(samples: Any, wav_stats: WavAudioStats) -> HarmonicDiversityStats:
+    np = _lazy_import_numpy()
+    empty = HarmonicDiversityStats(
+        wav=wav_stats,
+        voiced_frame_ratio=0.0,
+        f0_median_hz=0.0,
+        f0_iqr_hz=0.0,
+        midi_pitch_iqr=0.0,
+        midi_unique_notes=0,
+        spectral_centroid_mean_hz=0.0,
+        spectral_centroid_cv=0.0,
+        spectral_entropy_mean=0.0,
+        spectral_entropy_cv=0.0,
+        chroma_effective_rank=0.0,
+        chroma_delta_mean=0.0,
+    )
+    if samples.size == 0 or wav_stats.sample_rate_hz <= 0:
+        return empty
+
+    sr = int(wav_stats.sample_rate_hz)
+    samples = np.asarray(samples, dtype=np.float64)
+    samples = samples - float(np.mean(samples))
+    if samples.size < 64:
+        return empty
+
+    frame_size = min(4096, max(1024, _previous_power_of_two(max(1, samples.size))))
+    hop = max(256, frame_size // 4)
+    window = np.hanning(frame_size)
+    freqs = np.fft.rfftfreq(frame_size, d=1.0 / float(sr))
+    audible_mask = (freqs >= 40.0) & (freqs <= 5000.0)
+    audible_freqs = freqs[audible_mask]
+    if audible_freqs.size == 0:
+        return empty
+
+    f0_min_hz = 50.0
+    f0_max_hz = 1000.0
+    min_lag = max(1, int(sr / f0_max_hz))
+    max_lag = min(frame_size - 1, int(sr / f0_min_hz))
+    corr_fft_size = _next_power_of_two(frame_size * 2)
+    rms_floor = max(float(wav_stats.rms) * 0.08, 1e-5)
+
+    centroids: list[float] = []
+    entropies: list[float] = []
+    chroma_frames: list[Any] = []
+    f0_values: list[float] = []
+    total_frames = 0
+    voiced = 0
+
+    for start in range(0, max(1, samples.size - frame_size + 1), hop):
+        frame = samples[start : start + frame_size]
+        if frame.size < frame_size:
+            frame = np.pad(frame, (0, frame_size - frame.size))
+        frame_rms = float(np.sqrt(np.mean(np.square(frame))))
+        if frame_rms < rms_floor:
+            continue
+        total_frames += 1
+
+        centered = frame - float(np.mean(frame))
+        power = np.square(np.abs(np.fft.rfft(centered * window)))
+        audible_power = power[audible_mask]
+        total_power = float(np.sum(audible_power))
+        if total_power <= 1e-12:
+            continue
+
+        centroids.append(float(np.sum(audible_freqs * audible_power) / total_power))
+        probability = audible_power / total_power
+        entropy = -float(np.sum(probability * np.log(probability + 1e-20)))
+        entropy /= math.log(float(max(int(probability.size), 2)))
+        entropies.append(float(entropy))
+        chroma_frames.append(_chroma_frame(np, audible_freqs, audible_power, total_power))
+
+        if max_lag <= min_lag:
+            continue
+        corr_spec = np.fft.rfft(centered, n=corr_fft_size)
+        corr = np.fft.irfft(corr_spec * np.conj(corr_spec), n=corr_fft_size)[:frame_size]
+        if corr.size <= max_lag or float(corr[0]) <= 1e-12:
+            continue
+        lag_window = corr[min_lag : max_lag + 1]
+        best_relative = int(np.argmax(lag_window))
+        best_lag = min_lag + best_relative
+        normalized_corr = float(lag_window[best_relative] / corr[0])
+        if normalized_corr < 0.18:
+            continue
+        f0_values.append(float(sr) / float(best_lag))
+        voiced += 1
+
+    centroid_array = np.asarray(centroids, dtype=np.float64)
+    entropy_array = np.asarray(entropies, dtype=np.float64)
+    f0_array = np.asarray(f0_values, dtype=np.float64)
+    midi = _f0_to_midi(np, f0_array)
+    rounded_midi = np.rint(midi).astype(np.int64) if midi.size else np.asarray([], dtype=np.int64)
+    chroma_matrix = np.vstack(chroma_frames) if chroma_frames else np.zeros((0, 12), dtype=np.float64)
+
+    return HarmonicDiversityStats(
+        wav=wav_stats,
+        voiced_frame_ratio=float(voiced) / float(total_frames) if total_frames else 0.0,
+        f0_median_hz=float(np.median(f0_array)) if f0_array.size else 0.0,
+        f0_iqr_hz=float(np.percentile(f0_array, 75) - np.percentile(f0_array, 25)) if f0_array.size else 0.0,
+        midi_pitch_iqr=float(np.percentile(midi, 75) - np.percentile(midi, 25)) if midi.size else 0.0,
+        midi_unique_notes=int(np.unique(rounded_midi).size) if rounded_midi.size else 0,
+        spectral_centroid_mean_hz=float(np.mean(centroid_array)) if centroid_array.size else 0.0,
+        spectral_centroid_cv=_coefficient_of_variation(np, centroid_array),
+        spectral_entropy_mean=float(np.mean(entropy_array)) if entropy_array.size else 0.0,
+        spectral_entropy_cv=_coefficient_of_variation(np, entropy_array),
+        chroma_effective_rank=_effective_rank(np, chroma_matrix),
+        chroma_delta_mean=_chroma_delta_mean(np, chroma_matrix),
+    )
+
+
+def _inspect_spectrotemporal_modulation_samples(samples: Any, wav_stats: WavAudioStats) -> SpectroTemporalModulationStats:
+    np = _lazy_import_numpy()
+    bands = (
+        (80.0, 500.0),
+        (500.0, 1500.0),
+        (1500.0, 3500.0),
+        (3500.0, 8000.0),
+        (8000.0, 16000.0),
+    )
+    empty = SpectroTemporalModulationStats(
+        wav=wav_stats,
+        subband_edges_hz=bands,
+        subband_energy_share=tuple(0.0 for _ in bands),
+        subband_peak_hz=tuple(0.0 for _ in bands),
+        subband_peak_ratio=tuple(0.0 for _ in bands),
+        aligned_peak_hz=0.0,
+        aligned_band_count=0,
+        aligned_band_fraction=0.0,
+        aligned_peak_ratio_mean=0.0,
+        broadband_repetition_score=0.0,
+        broadband_fast_modulation_ratio_mean=0.0,
+        high_band_fast_modulation_ratio_mean=0.0,
+        modulation_entropy_p25=0.0,
+        long_lag_similarity_mean=0.0,
+        long_lag_similarity_min=0.0,
+        highband_dominant_modulation_hz=0.0,
+        highband_fast_modulation_ratio=0.0,
+        highband_peak_iqr_hz=0.0,
+        highband_peak_bin_occupancy=0.0,
+    )
+    if samples.size == 0 or wav_stats.sample_rate_hz <= 0:
+        return empty
+
+    sr = int(wav_stats.sample_rate_hz)
+    samples = np.asarray(samples, dtype=np.float64)
+    samples = samples - float(np.mean(samples))
+    frame_size = min(4096, max(1024, _previous_power_of_two(max(1, samples.size))))
+    hop = max(256, frame_size // 8)
+    if samples.size < frame_size:
+        return empty
+
+    window = np.hanning(frame_size)
+    freqs = np.fft.rfftfreq(frame_size, d=1.0 / float(sr))
+    total_mask = (freqs >= bands[0][0]) & (freqs <= bands[-1][1])
+    powers: list[Any] = []
+    for start in range(0, samples.size - frame_size + 1, hop):
+        frame = samples[start : start + frame_size]
+        powers.append(np.square(np.abs(np.fft.rfft(frame * window))))
+    if not powers:
+        return empty
+    power_matrix = np.vstack(powers).T
+    frame_rate = float(sr) / float(hop)
+    total_power = np.sum(power_matrix[total_mask], axis=0) + 1e-18
+
+    energy_shares: list[float] = []
+    peak_hz: list[float] = []
+    peak_ratios: list[float] = []
+    fast_ratios: list[float] = []
+    modulation_entropies: list[float] = []
+    for low, high in bands:
+        mask = (freqs >= low) & (freqs < high)
+        if not bool(np.any(mask)):
+            energy_shares.append(0.0)
+            peak_hz.append(0.0)
+            peak_ratios.append(0.0)
+            fast_ratios.append(0.0)
+            modulation_entropies.append(0.0)
+            continue
+        band_power = np.sum(power_matrix[mask], axis=0)
+        energy_shares.append(float(np.mean(band_power / total_power)))
+        envelope = np.log1p(band_power)
+        envelope = envelope - float(np.mean(envelope))
+        if envelope.size < 8 or float(np.max(np.abs(envelope))) <= 1e-12:
+            peak_hz.append(0.0)
+            peak_ratios.append(0.0)
+            fast_ratios.append(0.0)
+            modulation_entropies.append(0.0)
+            continue
+        modulation_power = np.square(np.abs(np.fft.rfft(envelope * np.hanning(envelope.size))))
+        modulation_freqs = np.fft.rfftfreq(envelope.size, d=1.0 / frame_rate)
+        modulation_mask = (modulation_freqs >= 0.5) & (modulation_freqs <= 8.0)
+        wide_modulation_mask = (modulation_freqs >= 0.5) & (modulation_freqs <= 20.0)
+        if not bool(np.any(modulation_mask)) or not bool(np.any(wide_modulation_mask)):
+            peak_hz.append(0.0)
+            peak_ratios.append(0.0)
+            fast_ratios.append(0.0)
+            modulation_entropies.append(0.0)
+            continue
+        local_power = modulation_power[modulation_mask]
+        local_freqs = modulation_freqs[modulation_mask]
+        total_modulation_power = float(np.sum(local_power))
+        wide_power = modulation_power[wide_modulation_mask]
+        total_wide_power = float(np.sum(wide_power))
+        if total_modulation_power <= 1e-18 or total_wide_power <= 1e-18:
+            peak_hz.append(0.0)
+            peak_ratios.append(0.0)
+            fast_ratios.append(0.0)
+            modulation_entropies.append(0.0)
+            continue
+        idx = int(np.argmax(local_power))
+        peak_hz.append(float(local_freqs[idx]))
+        peak_ratios.append(float(local_power[idx] / total_modulation_power))
+        fast_mask = (modulation_freqs >= 8.0) & (modulation_freqs <= 20.0)
+        fast_ratios.append(float(np.sum(modulation_power[fast_mask]) / total_wide_power))
+        probability = wide_power / total_wide_power
+        entropy = -float(np.sum(probability * np.log(probability + 1e-20)))
+        entropy /= math.log(float(max(int(probability.size), 2)))
+        modulation_entropies.append(float(entropy))
+
+    aligned_peak, aligned_count, aligned_mean = _aligned_modulation_peak(np, peak_hz, peak_ratios)
+    band_count = len(bands)
+    aligned_fraction = float(aligned_count) / float(band_count) if band_count else 0.0
+    score = aligned_fraction * aligned_mean
+    fast_array = np.asarray(fast_ratios, dtype=np.float64)
+    entropy_array = np.asarray(modulation_entropies, dtype=np.float64)
+    long_lag_mean, long_lag_min = _long_lag_spectral_similarity(np, power_matrix, freqs, frame_rate)
+    high_dom_hz, high_fast_ratio, high_peak_iqr, high_peak_occupancy = _highband_pulse_metrics(
+        np,
+        power_matrix,
+        freqs,
+        frame_rate,
+    )
+    return SpectroTemporalModulationStats(
+        wav=wav_stats,
+        subband_edges_hz=bands,
+        subband_energy_share=tuple(energy_shares),
+        subband_peak_hz=tuple(peak_hz),
+        subband_peak_ratio=tuple(peak_ratios),
+        aligned_peak_hz=float(aligned_peak),
+        aligned_band_count=int(aligned_count),
+        aligned_band_fraction=aligned_fraction,
+        aligned_peak_ratio_mean=float(aligned_mean),
+        broadband_repetition_score=float(score),
+        broadband_fast_modulation_ratio_mean=float(np.mean(fast_array)) if fast_array.size else 0.0,
+        high_band_fast_modulation_ratio_mean=float(np.mean(fast_array[-2:])) if fast_array.size >= 2 else 0.0,
+        modulation_entropy_p25=float(np.percentile(entropy_array, 25)) if entropy_array.size else 0.0,
+        long_lag_similarity_mean=long_lag_mean,
+        long_lag_similarity_min=long_lag_min,
+        highband_dominant_modulation_hz=high_dom_hz,
+        highband_fast_modulation_ratio=high_fast_ratio,
+        highband_peak_iqr_hz=high_peak_iqr,
+        highband_peak_bin_occupancy=high_peak_occupancy,
+    )
+
+
+def _aligned_modulation_peak(np: Any, peak_hz: list[float], peak_ratios: list[float]) -> tuple[float, int, float]:
+    if not peak_hz:
+        return 0.0, 0, 0.0
+    rates = np.asarray(peak_hz, dtype=np.float64)
+    ratios = np.asarray(peak_ratios, dtype=np.float64)
+    candidates = np.where((rates >= 0.5) & (ratios >= 0.30))[0]
+    if candidates.size == 0:
+        return 0.0, 0, 0.0
+    best_rate = 0.0
+    best_count = 0
+    best_ratio = 0.0
+    for idx in candidates:
+        close = np.where((np.abs(rates - rates[idx]) <= 0.35) & (ratios >= 0.30))[0]
+        count = int(close.size)
+        ratio = float(np.mean(ratios[close])) if close.size else 0.0
+        if count > best_count or (count == best_count and ratio > best_ratio):
+            best_rate = float(np.mean(rates[close])) if close.size else float(rates[idx])
+            best_count = count
+            best_ratio = ratio
+    return best_rate, best_count, best_ratio
+
+
+def _long_lag_spectral_similarity(np: Any, power_matrix: Any, freqs: Any, frame_rate: float) -> tuple[float, float]:
+    mask = (freqs >= 80.0) & (freqs <= 16000.0)
+    if not bool(np.any(mask)):
+        return 0.0, 0.0
+    features = np.log1p(power_matrix[mask].T)
+    if features.ndim != 2 or features.shape[0] < 4:
+        return 0.0, 0.0
+    features = features - np.mean(features, axis=1, keepdims=True)
+    norms = np.linalg.norm(features, axis=1, keepdims=True)
+    features = features / np.maximum(norms, 1e-12)
+    similarities: list[float] = []
+    for seconds in (1.0, 2.0, 4.0, 8.0):
+        lag = int(round(float(seconds) * float(frame_rate)))
+        if lag <= 0 or lag >= features.shape[0]:
+            continue
+        sims = np.sum(features[:-lag] * features[lag:], axis=1)
+        if sims.size:
+            similarities.append(float(np.mean(sims)))
+    if not similarities:
+        return 0.0, 0.0
+    values = np.asarray(similarities, dtype=np.float64)
+    return float(np.mean(values)), float(np.min(values))
+
+
+def _highband_pulse_metrics(np: Any, power_matrix: Any, freqs: Any, frame_rate: float) -> tuple[float, float, float, float]:
+    mask = (freqs >= 2500.0) & (freqs <= 12000.0)
+    if not bool(np.any(mask)):
+        return 0.0, 0.0, 0.0, 0.0
+    high_power = power_matrix[mask]
+    high_freqs = freqs[mask]
+    band_power = np.sum(high_power, axis=0)
+    envelope = np.log1p(band_power)
+    envelope = envelope - float(np.mean(envelope))
+    dominant_hz = 0.0
+    fast_ratio = 0.0
+    if envelope.size >= 8 and float(np.max(np.abs(envelope))) > 1e-12:
+        modulation_power = np.square(np.abs(np.fft.rfft(envelope * np.hanning(envelope.size))))
+        modulation_freqs = np.fft.rfftfreq(envelope.size, d=1.0 / frame_rate)
+        wide_mask = (modulation_freqs >= 0.5) & (modulation_freqs <= 35.0)
+        fast_mask = (modulation_freqs >= 6.0) & (modulation_freqs <= 35.0)
+        if bool(np.any(wide_mask)):
+            wide_power = modulation_power[wide_mask]
+            wide_total = float(np.sum(wide_power))
+            if wide_total > 1e-18:
+                wide_freqs = modulation_freqs[wide_mask]
+                dominant_hz = float(wide_freqs[int(np.argmax(wide_power))])
+                fast_ratio = float(np.sum(modulation_power[fast_mask]) / wide_total) if bool(np.any(fast_mask)) else 0.0
+
+    active = band_power > max(float(np.percentile(band_power, 25)), 1e-18)
+    if not bool(np.any(active)):
+        return dominant_hz, fast_ratio, 0.0, 0.0
+    peak_indices = np.argmax(high_power[:, active], axis=0)
+    peak_freqs = high_freqs[peak_indices]
+    if peak_freqs.size == 0:
+        return dominant_hz, fast_ratio, 0.0, 0.0
+    peak_iqr = float(np.percentile(peak_freqs, 75) - np.percentile(peak_freqs, 25))
+    bin_width = 500.0
+    bins = np.floor((peak_freqs - 2500.0) / bin_width).astype(np.int64)
+    counts = np.bincount(bins - int(np.min(bins))) if bins.size else np.asarray([], dtype=np.int64)
+    occupancy = float(np.max(counts) / peak_freqs.size) if counts.size and peak_freqs.size else 0.0
+    return dominant_hz, fast_ratio, peak_iqr, occupancy
+
+
+def _f0_to_midi(np: Any, f0_hz: Any) -> Any:
+    values = np.asarray(f0_hz, dtype=np.float64)
+    values = values[values > 0.0]
+    if values.size == 0:
+        return values
+    return 69.0 + 12.0 * np.log2(values / 440.0)
+
+
+def _coefficient_of_variation(np: Any, values: Any) -> float:
+    arr = np.asarray(values, dtype=np.float64)
+    if arr.size == 0:
+        return 0.0
+    mean = float(np.mean(arr))
+    if abs(mean) <= 1e-12:
+        return 0.0
+    return float(np.std(arr) / abs(mean))
+
+
+def _chroma_frame(np: Any, freqs: Any, power: Any, total_power: float) -> Any:
+    chroma = np.zeros(12, dtype=np.float64)
+    usable = freqs >= 27.5
+    if not bool(np.any(usable)):
+        return chroma
+    midi = np.rint(69.0 + 12.0 * np.log2(freqs[usable] / 440.0)).astype(np.int64)
+    np.add.at(chroma, np.mod(midi, 12), power[usable])
+    total = float(np.sum(chroma))
+    if total <= 1e-12:
+        return chroma
+    return chroma / max(total_power, total, 1e-12)
+
+
+def _effective_rank(np: Any, matrix: Any) -> float:
+    arr = np.asarray(matrix, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[0] == 0 or arr.shape[1] == 0:
+        return 0.0
+    try:
+        singular_values = np.linalg.svd(arr, compute_uv=False)
+    except Exception:
+        return 0.0
+    total = float(np.sum(singular_values))
+    if total <= 1e-12:
+        return 0.0
+    probability = singular_values / total
+    entropy = -float(np.sum(probability * np.log(probability + 1e-20)))
+    return float(np.exp(entropy))
+
+
+def _chroma_delta_mean(np: Any, matrix: Any) -> float:
+    arr = np.asarray(matrix, dtype=np.float64)
+    if arr.ndim != 2 or arr.shape[0] < 2:
+        return 0.0
+    return float(np.mean(np.linalg.norm(np.diff(arr, axis=0), ord=1, axis=1)))
 
 
 def _harmonic_energy_ratio(np: Any, power: Any, freqs: Any, f0_hz: float, total_power: float) -> float:

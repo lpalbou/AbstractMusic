@@ -19,8 +19,9 @@ options should be explicit and documented.
 
 Heavy runtime stacks must be imported lazily. The base package stays focused on contracts, manager
 code, artifact helpers, docs, CLI/plugin shells, and provider metadata. Local model engines live
-behind explicit extras such as `acestep-official`, `acestep`, `acestep-diffusers`, `diffusers`,
-`apple`, and `gpu`.
+behind explicit extras such as `acestep`, `acestep-v15`,
+`acestep-diffusers`, `diffusers`, `apple`, and `gpu`. The `acestep` extra installs the default
+ACE-Step Diffusers provider; `acestep-v15` is the explicit quality-limited vendored v1.5 backend.
 
 ## Precision Policy
 
@@ -28,6 +29,5 @@ When official 8-bit model artifacts exist, prefer them for local providers. If n
 artifact exists, prefer the smallest official 16-bit path before larger precision formats. Do not
 invent unofficial quantized checkpoints as defaults.
 
-On Apple hardware, prefer official MLX when a provider has a supported MLX path. The
-`acestep-official` backend follows this rule for the ACE-Step 5Hz LM. Otherwise use PyTorch MPS.
-CPU fallback must be explicit in warnings or metadata.
+On Apple hardware, prefer PyTorch MPS for standalone providers when supported. For ACE-Step, the
+default `acestep` backend has an explicit CPU float32 fallback when MPS returns non-finite audio.

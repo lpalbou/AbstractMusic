@@ -47,14 +47,15 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 4
+    assert len(reg.registrations) == 3
     backend_ids = {r["backend_id"] for r in reg.registrations}
     assert backend_ids == {
-        "abstractmusic:acestep-official",
         "abstractmusic:acestep-v15",
         "abstractmusic:acestep-diffusers",
         "abstractmusic:diffusers",
     }
+    priorities = {r["backend_id"]: r["priority"] for r in reg.registrations}
+    assert priorities["abstractmusic:acestep-diffusers"] > priorities["abstractmusic:acestep-v15"]
     assert all(callable(r["factory"]) for r in reg.registrations)
 
 

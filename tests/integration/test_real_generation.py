@@ -20,7 +20,7 @@ def _artifact_dir() -> Path:
 
 @pytest.mark.skipif(not _enabled(), reason="set ABSTRACTMUSIC_RUN_REAL_MODEL_TESTS=1 to run real model smoke tests")
 def test_real_generation_wav_is_valid_and_music_like():
-    backend_kind = str(os.environ.get("ABSTRACTMUSIC_REAL_BACKEND", "acestep-official")).strip().lower()
+    backend_kind = str(os.environ.get("ABSTRACTMUSIC_REAL_BACKEND", "acestep")).strip().lower()
     model_id = str(os.environ.get("ABSTRACTMUSIC_REAL_MODEL_ID", "")).strip()
     device = str(os.environ.get("ABSTRACTMUSIC_REAL_DEVICE", "auto")).strip() or "auto"
     dtype = str(os.environ.get("ABSTRACTMUSIC_REAL_DTYPE", "auto")).strip() or "auto"
@@ -28,19 +28,17 @@ def test_real_generation_wav_is_valid_and_music_like():
     steps_raw = os.environ.get("ABSTRACTMUSIC_REAL_STEPS")
     steps = int(steps_raw) if steps_raw else None
 
-    if backend_kind == "acestep-official":
-        from abstractmusic.backends.acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
+    if backend_kind in {"acestep", "acestep-v15", "legacy"}:
+        from abstractmusic.backends.acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 
-        backend = AceStepOfficialBackend(
-            config=AceStepOfficialBackendConfig(
+        backend = AceStepV15Backend(
+            config=AceStepV15BackendConfig(
                 repo_id=model_id or "ACE-Step/Ace-Step1.5",
-                source_dir=os.environ.get("ABSTRACTMUSIC_ACESTEP_SOURCE_DIR") or None,
-                checkpoint_dir=os.environ.get("ABSTRACTMUSIC_ACESTEP_CHECKPOINT_DIR") or None,
-                lm_model_path=os.environ.get("ABSTRACTMUSIC_ACESTEP_LM_MODEL_PATH", "acestep-5Hz-lm-1.7B"),
-                lm_backend=os.environ.get("ABSTRACTMUSIC_ACESTEP_LM_BACKEND", "auto"),
                 device=device,
+                torch_dtype=dtype,
+                vae_torch_dtype=dtype,
                 default_duration_s=duration,
-                num_inference_steps=steps or 8,
+                fix_nfe=steps or 8,
             )
         )
     elif backend_kind == "acestep-diffusers":
@@ -53,19 +51,6 @@ def test_real_generation_wav_is_valid_and_music_like():
                 torch_dtype=dtype,
                 duration_s=duration,
                 num_inference_steps=steps or 8,
-            )
-        )
-    elif backend_kind == "acestep":
-        from abstractmusic.backends.acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
-
-        backend = AceStepV15Backend(
-            config=AceStepV15BackendConfig(
-                repo_id=model_id or "ACE-Step/Ace-Step1.5",
-                device=device,
-                torch_dtype=dtype,
-                vae_torch_dtype=dtype,
-                default_duration_s=duration,
-                fix_nfe=steps or 8,
             )
         )
     else:

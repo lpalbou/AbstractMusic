@@ -11,8 +11,8 @@ def test_acestep_aligns_conditioning_to_model_dtype(monkeypatch, tmp_path):
     silence_path = tmp_path / "silence_latent.pt"
     torch.save(torch.zeros((1, 64, 1000), dtype=torch.float32), silence_path)
 
-    def _fake_hf_hub_download(*, repo_id, revision=None, cache_dir=None, filename):
-        _ = repo_id, revision, cache_dir, filename
+    def _fake_hf_hub_download(*, repo_id, revision=None, cache_dir=None, filename, **kwargs):
+        _ = repo_id, revision, cache_dir, filename, kwargs
         return str(silence_path)
 
     monkeypatch.setattr(
@@ -136,4 +136,3 @@ def test_acestep_aligns_conditioning_to_model_dtype(monkeypatch, tmp_path):
     asset = backend.generate_audio(AudioGenerationRequest(prompt="sci fi music", duration_s=1.0))
     assert asset.mime_type == "audio/wav"
     assert bytes(asset.data)[:4] == b"RIFF"
-

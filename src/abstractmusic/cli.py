@@ -22,18 +22,21 @@ if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "Y
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
 
-SUPPORTED_BACKENDS = ("acestep-official", "acestep", "acestep-diffusers", "diffusers", "musicgen", "stable-audio")
-DEFAULT_OFFICIAL_LM_MODEL_PATH = "acestep-5Hz-lm-1.7B"
+SUPPORTED_BACKENDS = ("acestep-diffusers", "acestep-v15", "diffusers", "musicgen", "stable-audio")
+DEFAULT_BACKEND = "acestep-diffusers"
 BACKEND_ALIASES = {
-    "official": "acestep-official",
-    "upstream": "acestep-official",
-    "mlx": "acestep-official",
-    "acestep-mlx": "acestep-official",
-    "acestep_official": "acestep-official",
-    "ace": "acestep",
-    "acestep-v15": "acestep",
-    "acestep_v15": "acestep",
-    "v15": "acestep",
+    "acestep": "acestep-diffusers",
+    "ace": "acestep-diffusers",
+    "ace-step": "acestep-diffusers",
+    "acestep-v15": "acestep-v15",
+    "acestep_v15": "acestep-v15",
+    "v15": "acestep-v15",
+    "legacy": "acestep-v15",
+    "acestep-legacy": "acestep-v15",
+    "acestep_legacy": "acestep-v15",
+    "custom": "acestep-v15",
+    "acestep-custom": "acestep-v15",
+    "acestep_custom": "acestep-v15",
     "xl": "acestep-diffusers",
     "ace-xl": "acestep-diffusers",
     "acestep-xl": "acestep-diffusers",
@@ -112,8 +115,8 @@ def _copy_namespace(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def _configure_mps_env(args: argparse.Namespace) -> None:
-    backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
-    if backend_kind != "acestep":
+    backend_kind = str(getattr(args, "backend", "acestep-v15") or "acestep-v15").strip().lower()
+    if backend_kind != "acestep-v15":
         return
     device = str(getattr(args, "device", "auto") or "auto").strip().lower()
     if device not in {"auto", "mps"}:
@@ -156,10 +159,10 @@ def build_parser() -> argparse.ArgumentParser:
             "--engine",
             dest="backend",
             type=_parse_backend_arg,
-            default=_normalize_backend(_env("ABSTRACTMUSIC_BACKEND", "acestep-official") or "acestep-official")
+            default=_normalize_backend(_env("ABSTRACTMUSIC_BACKEND", DEFAULT_BACKEND) or DEFAULT_BACKEND)
             if use_defaults
             else default_suppress,
-            help="Local generation engine/backend (acestep-official|acestep|acestep-diffusers|diffusers|musicgen|stable-audio; aliases: official, xl, ace, hf). Default: acestep-official.",
+            help="Local generation engine/backend (acestep|acestep-v15|acestep-diffusers|diffusers|musicgen|stable-audio; aliases: ace, xl, v15, hf). Default: acestep.",
         )
         parser.add_argument(
             "--model-id",
@@ -208,24 +211,9 @@ def build_parser() -> argparse.ArgumentParser:
             help="Optional diffusers pipeline class name (e.g. AudioLDMPipeline). Usually not needed.",
         )
         parser.add_argument(
-            "--lm-model-path",
-            default=_env("ABSTRACTMUSIC_ACESTEP_LM_MODEL_PATH", DEFAULT_OFFICIAL_LM_MODEL_PATH) if use_defaults else default_suppress,
-            help=f"Official ACE-Step 5Hz LM checkpoint name. Default: {DEFAULT_OFFICIAL_LM_MODEL_PATH}.",
-        )
-        parser.add_argument(
             "--lm-backend",
             default=_env("ABSTRACTMUSIC_ACESTEP_LM_BACKEND", "auto") if use_defaults else default_suppress,
-            help="Official ACE-Step LM runtime: auto|mlx|vllm|pt.",
-        )
-        parser.add_argument(
-            "--acestep-source-dir",
-            default=_env("ABSTRACTMUSIC_ACESTEP_SOURCE_DIR") if use_defaults else default_suppress,
-            help="Optional upstream ACE-Step source tree for the official backend.",
-        )
-        parser.add_argument(
-            "--acestep-checkpoint-dir",
-            default=_env("ABSTRACTMUSIC_ACESTEP_CHECKPOINT_DIR") if use_defaults else default_suppress,
-            help="Optional upstream ACE-Step checkpoint directory.",
+            help="Standalone ACE-Step internal planner device: auto|cuda|xpu|mps|cpu.",
         )
         parser.add_argument(
             "--steps",
@@ -257,6 +245,13 @@ def build_parser() -> argparse.ArgumentParser:
             help="Optional time signature metadata, e.g. 4.",
         )
         parser.add_argument(
+            "--vocal-language",
+            default=_env("ABSTRACTMUSIC_VOCAL_LANGUAGE", _env("ABSTRACTMUSIC_ACESTEP_VOCAL_LANGUAGE"))
+            if use_defaults
+            else default_suppress,
+            help="Optional ACE-Step vocal language hint, e.g. en. Default leaves language as unknown.",
+        )
+        parser.add_argument(
             "--guidance-scale",
             type=float,
             default=None if use_defaults else default_suppress,
@@ -265,59 +260,91 @@ def build_parser() -> argparse.ArgumentParser:
             "--shift",
             type=float,
             default=float(_env("ABSTRACTMUSIC_ACESTEP_SHIFT", "3.0") or "3.0") if use_defaults else default_suppress,
-            help="Official ACE-Step timestep shift. Default: 3.0 for turbo checkpoints.",
+            help="ACE-Step timestep shift. Default: 3.0 for turbo checkpoints.",
         )
         parser.add_argument(
             "--infer-method",
             choices=("ode", "sde"),
             default=_env("ABSTRACTMUSIC_ACESTEP_INFER_METHOD", "ode") if use_defaults else default_suppress,
-            help="Official ACE-Step diffusion inference method. Default: ode.",
+            help="ACE-Step diffusion inference method. Default: ode.",
         )
         parser.add_argument(
-            "--sampler-mode",
-            choices=("euler", "heun"),
-            default=_env("ABSTRACTMUSIC_ACESTEP_SAMPLER_MODE", "euler") if use_defaults else default_suppress,
-            help="Official ACE-Step sampler mode. Default: euler.",
+            "--dcw-enabled",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_ACESTEP_DCW_ENABLED", True) if use_defaults else default_suppress,
+            help="Enable ACE-Step native-Haar DCW sampler correction. Default: on.",
+        )
+        parser.add_argument(
+            "--dcw-mode",
+            choices=("low", "high", "double", "pix"),
+            default=_env("ABSTRACTMUSIC_ACESTEP_DCW_MODE", "double") if use_defaults else default_suppress,
+            help="ACE-Step DCW correction mode. Default: double.",
+        )
+        parser.add_argument(
+            "--dcw-scaler",
+            type=float,
+            default=float(_env("ABSTRACTMUSIC_ACESTEP_DCW_SCALER", "0.05") or "0.05")
+            if use_defaults
+            else default_suppress,
+            help="ACE-Step DCW low-band strength. Default: 0.05.",
+        )
+        parser.add_argument(
+            "--dcw-high-scaler",
+            type=float,
+            default=float(_env("ABSTRACTMUSIC_ACESTEP_DCW_HIGH_SCALER", "0.02") or "0.02")
+            if use_defaults
+            else default_suppress,
+            help="ACE-Step DCW high-band strength for double mode. Default: 0.02.",
         )
         parser.add_argument(
             "--lm-temperature",
             type=float,
             default=float(_env("ABSTRACTMUSIC_ACESTEP_LM_TEMPERATURE", "0.85") or "0.85") if use_defaults else default_suppress,
-            help="Official ACE-Step 5Hz LM sampling temperature. Default: 0.85.",
+            help="Standalone ACE-Step internal 5Hz LM sampling temperature. Default: 0.85.",
         )
         parser.add_argument(
             "--lm-cfg-scale",
             type=float,
             default=float(_env("ABSTRACTMUSIC_ACESTEP_LM_CFG_SCALE", "2.0") or "2.0") if use_defaults else default_suppress,
-            help="Official ACE-Step 5Hz LM CFG scale. Default: 2.0.",
+            help="Standalone ACE-Step internal 5Hz LM CFG scale. Default: 2.0.",
         )
         parser.add_argument(
             "--lm-top-k",
             type=int,
             default=int(_env("ABSTRACTMUSIC_ACESTEP_LM_TOP_K", "0") or "0") if use_defaults else default_suppress,
-            help="Official ACE-Step 5Hz LM top-k sampling. Default: 0 disables top-k.",
+            help="Standalone ACE-Step internal 5Hz LM top-k sampling. Default: 0 disables top-k.",
         )
         parser.add_argument(
             "--lm-top-p",
             type=float,
             default=float(_env("ABSTRACTMUSIC_ACESTEP_LM_TOP_P", "0.9") or "0.9") if use_defaults else default_suppress,
-            help="Official ACE-Step 5Hz LM top-p sampling. Default: 0.9.",
+            help="Standalone ACE-Step internal 5Hz LM top-p sampling. Default: 0.9.",
         )
         parser.add_argument(
-            "--audio-cover-strength",
-            type=float,
-            default=float(_env("ABSTRACTMUSIC_ACESTEP_AUDIO_COVER_STRENGTH", "1.0") or "1.0")
-            if use_defaults
-            else default_suppress,
-            help="Official ACE-Step strength for LM audio-code/reference conditioning. Default: 1.0.",
+            "--audio-code-planner",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_ACESTEP_AUDIO_CODE_PLANNER", False) if use_defaults else default_suppress,
+            help="Enable the experimental standalone ACE-Step 5Hz LM audio-code planner. Default: off.",
         )
         parser.add_argument(
-            "--cover-noise-strength",
+            "--planner-cover-strength",
             type=float,
-            default=float(_env("ABSTRACTMUSIC_ACESTEP_COVER_NOISE_STRENGTH", "0.0") or "0.0")
+            default=float(_env("ABSTRACTMUSIC_ACESTEP_PLANNER_COVER_STRENGTH", "0.50") or "0.50")
             if use_defaults
             else default_suppress,
-            help="Official ACE-Step source/code noise mixing strength. Default: 0.0.",
+            help="Fraction of ACE-Step diffusion steps conditioned by internal planner hints. Default: 0.50.",
+        )
+        parser.add_argument(
+            "--random-src-latents",
+            action=argparse.BooleanOptionalAction,
+            default=_env_flag("ABSTRACTMUSIC_ACESTEP_RANDOM_SRC_LATENTS", True) if use_defaults else default_suppress,
+            help="Use seeded random source latents for standalone ACE-Step text-to-music. Default: on.",
+        )
+        parser.add_argument(
+            "--quality-retries",
+            type=int,
+            default=int(_env("ABSTRACTMUSIC_QUALITY_RETRIES")) if use_defaults and _env("ABSTRACTMUSIC_QUALITY_RETRIES") is not None else default_suppress,
+            help="Standalone ACE-Step extra attempts for seedless generations that fail local quality gates.",
         )
         parser.add_argument(
             "--seed",
@@ -333,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--verbose",
             action="store_true",
             default=verbose_default if use_defaults else default_suppress,
-            help="Show upstream backend logs/progress. Default keeps the REPL output quiet.",
+            help="Show backend logs/progress. Default keeps the REPL output quiet.",
         )
 
     _add_common_args(p, use_defaults=True)
@@ -374,37 +401,8 @@ def _make_manager_from_args(args: argparse.Namespace):
     # Import lazily to avoid pulling torch/diffusers during `abstractmusic --help`.
     from .music_manager import MusicManager
 
-    backend_kind = str(getattr(args, "backend", "diffusers") or "diffusers").strip().lower()
+    backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     model_id = str(getattr(args, "model_id", "") or "").strip()
-
-    if backend_kind == "acestep-official":
-        from .backends.acestep_official import AceStepOfficialBackend, AceStepOfficialBackendConfig
-
-        if not model_id:
-            model_id = "ACE-Step/Ace-Step1.5"
-        cfg = AceStepOfficialBackendConfig(
-            repo_id=model_id,
-            source_dir=str(getattr(args, "acestep_source_dir", "") or "").strip() or None,
-            checkpoint_dir=str(getattr(args, "acestep_checkpoint_dir", "") or "").strip() or None,
-            lm_model_path=str(getattr(args, "lm_model_path", DEFAULT_OFFICIAL_LM_MODEL_PATH) or DEFAULT_OFFICIAL_LM_MODEL_PATH),
-            lm_backend=str(getattr(args, "lm_backend", "auto") or "auto"),
-            device=str(getattr(args, "device", "auto") or "auto"),
-            default_duration_s=float(getattr(args, "duration", 10.0)),
-            num_inference_steps=int(getattr(args, "steps", None) or 8),
-            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 1.0,
-            shift=_arg_float(args, "shift", 3.0),
-            infer_method=_arg_str(args, "infer_method", "ode"),
-            sampler_mode=_arg_str(args, "sampler_mode", "euler"),
-            lm_temperature=_arg_float(args, "lm_temperature", 0.85),
-            lm_cfg_scale=_arg_float(args, "lm_cfg_scale", 2.0),
-            lm_top_k=_arg_int(args, "lm_top_k", 0),
-            lm_top_p=_arg_float(args, "lm_top_p", 0.9),
-            audio_cover_strength=_arg_float(args, "audio_cover_strength", 1.0),
-            cover_noise_strength=_arg_float(args, "cover_noise_strength", 0.0),
-            verbose=bool(getattr(args, "verbose", False)),
-        )
-        backend = AceStepOfficialBackend(config=cfg)
-        return MusicManager(backend=backend)
 
     if backend_kind == "acestep-diffusers":
         from .backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
@@ -469,7 +467,7 @@ def _make_manager_from_args(args: argparse.Namespace):
         backend = StableAudioBackend(config=cfg)
         return MusicManager(backend=backend)
 
-    if backend_kind == "acestep":
+    if backend_kind == "acestep-v15":
         from .backends import AceStepV15Backend, AceStepV15BackendConfig
 
         if not model_id:
@@ -481,7 +479,23 @@ def _make_manager_from_args(args: argparse.Namespace):
             "vae_torch_dtype": str(getattr(args, "dtype", "auto") or "auto"),
             "default_duration_s": float(getattr(args, "duration", 10.0)),
             "fix_nfe": int(getattr(args, "steps", None) or 8),
+            "shift": _arg_float(args, "shift", 3.0),
+            "infer_method": _arg_str(args, "infer_method", "ode"),
+            "dcw_enabled": bool(getattr(args, "dcw_enabled", True)),
+            "dcw_mode": _arg_str(args, "dcw_mode", "double"),
+            "dcw_scaler": _arg_float(args, "dcw_scaler", 0.05),
+            "dcw_high_scaler": _arg_float(args, "dcw_high_scaler", 0.02),
+            "use_audio_code_planner": bool(getattr(args, "audio_code_planner", False)),
+            "use_random_src_latents": bool(getattr(args, "random_src_latents", True)),
+            "planner_cover_strength": _arg_float(args, "planner_cover_strength", 0.50),
+            "lm_device": str(getattr(args, "lm_backend", "auto") or "auto"),
+            "lm_temperature": _arg_float(args, "lm_temperature", 0.85),
+            "lm_cfg_scale": _arg_float(args, "lm_cfg_scale", 2.0),
+            "lm_top_k": _arg_int(args, "lm_top_k", 0),
+            "lm_top_p": _arg_float(args, "lm_top_p", 0.9),
         }
+        if getattr(args, "quality_retries", None) is not None:
+            cfg_kwargs["quality_retry_max_attempts"] = max(0, int(getattr(args, "quality_retries")))
         mps_max = getattr(args, "mps_max_memory_gb", None)
         if mps_max is not None:
             try:
@@ -515,30 +529,6 @@ def _make_manager_from_args(args: argparse.Namespace):
     raise SystemExit(f"Unknown --backend: {backend_kind!r}")
 
 
-def _official_generation_kwargs(args: argparse.Namespace) -> dict[str, Any]:
-    backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
-    if backend_kind != "acestep-official":
-        return {}
-    kwargs: dict[str, Any] = {
-        "shift": _arg_float(args, "shift", 3.0),
-        "infer_method": _arg_str(args, "infer_method", "ode"),
-        "sampler_mode": _arg_str(args, "sampler_mode", "euler"),
-        "lm_temperature": _arg_float(args, "lm_temperature", 0.85),
-        "lm_cfg_scale": _arg_float(args, "lm_cfg_scale", 2.0),
-        "lm_top_k": _arg_int(args, "lm_top_k", 0),
-        "lm_top_p": _arg_float(args, "lm_top_p", 0.9),
-        "audio_cover_strength": _arg_float(args, "audio_cover_strength", 1.0),
-        "cover_noise_strength": _arg_float(args, "cover_noise_strength", 0.0),
-    }
-    if getattr(args, "bpm", None) is not None:
-        kwargs["bpm"] = int(getattr(args, "bpm"))
-    if getattr(args, "keyscale", None):
-        kwargs["keyscale"] = str(getattr(args, "keyscale"))
-    if getattr(args, "timesignature", None):
-        kwargs["timesignature"] = str(getattr(args, "timesignature"))
-    return kwargs
-
-
 def _cmd_t2m(args: argparse.Namespace) -> int:
     mm = _make_manager_from_args(args)
     backend_kind = str(getattr(args, "backend", "acestep") or "acestep").strip().lower()
@@ -557,7 +547,10 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
         seed=args.seed,
         negative_prompt=args.negative,
         lyrics=lyrics,
-        **_official_generation_kwargs(args),
+        vocal_language=getattr(args, "vocal_language", None),
+        bpm=getattr(args, "bpm", None),
+        keyscale=getattr(args, "keyscale", None),
+        timesignature=getattr(args, "timesignature", None),
     )
     out_path = Path(str(args.out)).expanduser()
     _write_bytes(out_path, wav)
@@ -713,7 +706,10 @@ class MusicREPL(cmd.Cmd):
             seed=getattr(self.args, "seed", None),
             negative_prompt=getattr(self.args, "negative", None),
             lyrics=request_lyrics,
-            **_official_generation_kwargs(self.args),
+            vocal_language=getattr(self.args, "vocal_language", None),
+            bpm=getattr(self.args, "bpm", None),
+            keyscale=getattr(self.args, "keyscale", None),
+            timesignature=getattr(self.args, "timesignature", None),
         )
         out_path = self._next_output_path()
         _write_bytes(out_path, wav)
@@ -741,26 +737,25 @@ class MusicREPL(cmd.Cmd):
         print("  /prompt [text|clear]     Show, set, or clear the session prompt")
         print("  /run                     Generate from the current prompt")
         print("  /generate [prompt]       Generate from a prompt; bare prompt also works")
-        print("  /engine [name]           Show or set engine: acestep-official, acestep, xl, diffusers, musicgen, stable-audio")
+        print("  /engine [name]           Show or set engine: acestep, acestep-v15, xl, diffusers, musicgen, stable-audio")
         print("  /model [id|clear]        Show or set model id")
-        print("  /lm [name]               Show or set official ACE-Step 5Hz LM checkpoint")
-        print("  /lm-backend [auto|mlx|vllm|pt]")
+        print("  /lm-backend [auto|cuda|xpu|mps|cpu]")
         print("  /device [auto|mps|cuda|cpu]")
         print("  /dtype [auto|float16|bfloat16|float32]")
         print("  /duration <seconds>      Set generation duration")
         print("  /bpm <n|auto>            Set target BPM metadata")
         print("  /keyscale <text|clear>   Set target key/scale metadata")
         print("  /timesignature <n|clear> Set target time signature metadata")
+        print("  /vocal-language <code|clear>")
         print("  /steps <n|auto>          Set inference steps")
         print("  /seed <n|auto>           Set seed")
         print("  /guidance <value|auto>   Set guidance scale")
         print("  /shift <value>           Set ACE-Step timestep shift")
         print("  /infer-method <ode|sde>  Set ACE-Step inference method")
-        print("  /sampler-mode <euler|heun>")
-        print("  /lm-temperature <value>  Set ACE-Step 5Hz LM temperature")
-        print("  /lm-cfg-scale <value>    Set ACE-Step 5Hz LM CFG scale")
-        print("  /audio-cover-strength <value>")
-        print("  /verbose [on|off]        Show or hide upstream backend logs")
+        print("  /lm-temperature <value>  Set standalone ACE-Step planner temperature")
+        print("  /lm-cfg-scale <value>    Set standalone ACE-Step planner CFG scale")
+        print("  /quality-retries <n>     Set ACE-Step harmonic quality retry count")
+        print("  /verbose [on|off]        Show or hide backend logs")
         print("  /lyrics <text|clear>     Set session lyrics, e.g. [Instrumental]")
         print("  /negative <text|clear>   Set negative prompt")
         print("  /out <dir>               Set output directory")
@@ -838,18 +833,6 @@ class MusicREPL(cmd.Cmd):
             print(f"model: {value}")
         self._mark_dirty()
 
-    def do_lm(self, arg: str) -> None:
-        value = str(arg or "").strip()
-        if not value:
-            print(str(getattr(self.args, "lm_model_path", None) or DEFAULT_OFFICIAL_LM_MODEL_PATH))
-            return
-        setattr(self.args, "lm_model_path", value)
-        self._mark_dirty()
-        print(f"lm: {value}")
-
-    def do_lm_model_path(self, arg: str) -> None:
-        self.do_lm(arg)
-
     def do_lm_backend(self, arg: str) -> None:
         value = str(arg or "").strip()
         if not value:
@@ -889,6 +872,9 @@ class MusicREPL(cmd.Cmd):
     def do_timesignature(self, arg: str) -> None:
         self._set_optional_text("timesignature", arg, "timesignature")
 
+    def do_vocal_language(self, arg: str) -> None:
+        self._set_optional_text("vocal_language", arg, "vocal-language")
+
     def do_steps(self, arg: str) -> None:
         self._set_optional_int("steps", arg, "steps")
 
@@ -915,17 +901,6 @@ class MusicREPL(cmd.Cmd):
         setattr(self.args, "infer_method", value)
         print(f"infer-method: {value}")
 
-    def do_sampler_mode(self, arg: str) -> None:
-        value = str(arg or "").strip().lower()
-        if not value:
-            print(str(getattr(self.args, "sampler_mode", "euler") or "euler"))
-            return
-        if value not in {"euler", "heun"}:
-            print("Usage: /sampler-mode <euler|heun>")
-            return
-        setattr(self.args, "sampler_mode", value)
-        print(f"sampler-mode: {value}")
-
     def do_lm_temperature(self, arg: str) -> None:
         self._set_optional_float("lm_temperature", arg, "lm-temperature", clear_to_none=False)
 
@@ -938,11 +913,8 @@ class MusicREPL(cmd.Cmd):
     def do_lm_top_p(self, arg: str) -> None:
         self._set_optional_float("lm_top_p", arg, "lm-top-p", clear_to_none=False)
 
-    def do_audio_cover_strength(self, arg: str) -> None:
-        self._set_optional_float("audio_cover_strength", arg, "audio-cover-strength", clear_to_none=False)
-
-    def do_cover_noise_strength(self, arg: str) -> None:
-        self._set_optional_float("cover_noise_strength", arg, "cover-noise-strength", clear_to_none=False)
+    def do_quality_retries(self, arg: str) -> None:
+        self._set_optional_int("quality_retries", arg, "quality-retries")
 
     def do_verbose(self, arg: str = "") -> None:
         value = str(arg or "").strip().lower()
@@ -991,7 +963,6 @@ class MusicREPL(cmd.Cmd):
         fields: list[tuple[str, Any]] = [
             ("engine", getattr(self.args, "backend", None)),
             ("model", getattr(self.args, "model_id", None) or "default"),
-            ("lm", getattr(self.args, "lm_model_path", None) or "default"),
             ("lm_backend", getattr(self.args, "lm_backend", None) or "auto"),
             ("prompt", self.current_prompt or "none"),
             ("device", getattr(self.args, "device", "auto")),
@@ -1000,18 +971,17 @@ class MusicREPL(cmd.Cmd):
             ("bpm", getattr(self.args, "bpm", None) if getattr(self.args, "bpm", None) is not None else "auto"),
             ("keyscale", getattr(self.args, "keyscale", None) or "auto"),
             ("timesignature", getattr(self.args, "timesignature", None) or "auto"),
+            ("vocal_language", getattr(self.args, "vocal_language", None) or "unknown"),
             ("steps", getattr(self.args, "steps", None) or "auto"),
             ("seed", getattr(self.args, "seed", None) if getattr(self.args, "seed", None) is not None else "auto"),
             ("guidance", getattr(self.args, "guidance_scale", None) if getattr(self.args, "guidance_scale", None) is not None else "auto"),
             ("shift", getattr(self.args, "shift", 3.0)),
             ("infer_method", getattr(self.args, "infer_method", "ode")),
-            ("sampler_mode", getattr(self.args, "sampler_mode", "euler")),
             ("lm_temperature", getattr(self.args, "lm_temperature", 0.85)),
             ("lm_cfg_scale", getattr(self.args, "lm_cfg_scale", 2.0)),
             ("lm_top_k", getattr(self.args, "lm_top_k", 0)),
             ("lm_top_p", getattr(self.args, "lm_top_p", 0.9)),
-            ("audio_cover_strength", getattr(self.args, "audio_cover_strength", 1.0)),
-            ("cover_noise_strength", getattr(self.args, "cover_noise_strength", 0.0)),
+            ("quality_retries", getattr(self.args, "quality_retries", 2)),
             ("verbose", "on" if bool(getattr(self.args, "verbose", False)) else "off"),
             ("lyrics", getattr(self.args, "lyrics", None) or "none"),
             ("negative", getattr(self.args, "negative", None) or "none"),
@@ -1049,3 +1019,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.cmd == "repl":
         return _cmd_repl(args)
     raise SystemExit(f"Unknown command: {args.cmd}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

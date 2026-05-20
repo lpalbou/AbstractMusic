@@ -23,12 +23,18 @@ import io
 import math
 import os
 import random
+import re
 import subprocess
 import sys
 import wave
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
+from ..audio_analysis import (
+    inspect_harmonic_diversity_bytes,
+    inspect_music_signal_bytes,
+    inspect_spectrotemporal_modulation_bytes,
+)
 from ..errors import OptionalDependencyMissingError
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
@@ -64,6 +70,16 @@ def _lazy_import_transformers():
             "Optional dependency missing (or failed to import): transformers. Install via: pip install 'transformers'"
         ) from e
     return AutoModel, AutoTokenizer
+
+
+def _lazy_import_transformers_lm():
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
+    except Exception as e:  # pragma: no cover
+        raise OptionalDependencyMissingError(
+            "Optional dependency missing (or failed to import): transformers. Install via: pip install 'transformers'"
+        ) from e
+    return AutoModelForCausalLM, AutoTokenizer
 
 
 def _patch_transformers_rope_validation() -> None:
@@ -278,6 +294,14 @@ def _from_pretrained_diffusers(cls: Any, *, dtype: Any, **kwargs: Any) -> Any:
     """Call Diffusers from_pretrained using torch_dtype."""
 
     return cls.from_pretrained(torch_dtype=dtype, **kwargs)
+
+
+def _postprocess_caption_yaml_value(text: str) -> str:
+    """Flatten YAML-style multi-line caption output into one readable line."""
+    if not text:
+        return text
+    parts = [line.strip() for line in str(text).splitlines() if line.strip()]
+    return " ".join(parts)
 
 
 def _get_system_memory_gb() -> Optional[float]:
@@ -563,6 +587,30 @@ def _encode_wav_bytes(audio: Any, *, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
+def _decode_wav_bytes(wav_bytes: bytes) -> Tuple[Any, int]:
+    """Decode 16-bit PCM WAV bytes into a float32 torch tensor [C, T]."""
+    np = _lazy_import_numpy()
+    torch = _lazy_import_torch()
+
+    with wave.open(io.BytesIO(bytes(wav_bytes)), "rb") as wf:
+        sample_rate = int(wf.getframerate())
+        n_channels = int(wf.getnchannels())
+        sample_width = int(wf.getsampwidth())
+        n_frames = int(wf.getnframes())
+        raw = wf.readframes(n_frames)
+
+    if sample_width != 2:
+        raise ValueError(f"Unsupported WAV sample width: {sample_width} bytes")
+
+    pcm = np.frombuffer(raw, dtype="<i2")
+    if n_channels > 1:
+        pcm = pcm.reshape(-1, n_channels)
+    else:
+        pcm = pcm.reshape(-1, 1)
+    audio = torch.from_numpy(pcm.astype(np.float32, copy=False).T / 32767.0)
+    return audio, sample_rate
+
+
 def _peak_normalize(wav: Any, *, target_db: float = -1.0) -> Any:
     """Peak-normalize an audio tensor/array to a target peak dBFS (default -1 dB)."""
     torch = _lazy_import_torch()
@@ -661,6 +709,10 @@ def _format_lyrics(lyrics: str, language: str) -> str:
     return f"# Languages\n{language}\n\n# Lyric\n{lyrics}<|endoftext|>"
 
 
+_DEFAULT_DIT_INSTRUCTION = "Fill the audio semantic mask based on the given conditions:"
+_DEFAULT_COVER_DIT_INSTRUCTION = "Generate audio semantic tokens based on the given conditions:"
+
+
 def _default_meta_string(duration_s: float) -> str:
     # Mirrors upstream _create_default_meta.
     ds = max(1, int(round(float(duration_s))))
@@ -668,6 +720,25 @@ def _default_meta_string(duration_s: float) -> str:
         "- bpm: N/A\n"
         "- timesignature: N/A\n"
         "- keyscale: N/A\n"
+        f"- duration: {ds} seconds\n"
+    )
+
+
+def _meta_string(
+    *,
+    duration_s: float,
+    bpm: Optional[int],
+    keyscale: str,
+    timesignature: str,
+) -> str:
+    ds = max(1, int(round(float(duration_s))))
+    bpm_text = "N/A" if bpm is None else str(int(bpm))
+    keyscale_text = str(keyscale or "").strip() or "N/A"
+    timesignature_text = str(timesignature or "").strip() or "N/A"
+    return (
+        f"- bpm: {bpm_text}\n"
+        f"- timesignature: {timesignature_text}\n"
+        f"- keyscale: {keyscale_text}\n"
         f"- duration: {ds} seconds\n"
     )
 
@@ -684,6 +755,7 @@ class AceStepV15BackendConfig:
     repo_id: str = "ACE-Step/Ace-Step1.5"
     revision: Optional[str] = _DEFAULT_ACESTEP_V15_REVISION
     cache_dir: Optional[str] = None
+    local_files_only: bool = True
 
     device: str = "auto"
     torch_dtype: str = "auto"  # auto|float32|float16|bfloat16
@@ -703,12 +775,21 @@ class AceStepV15BackendConfig:
     fix_nfe: int = 8  # Turbo schedule length (ACE-Step v1.5 turbo)
     shift: float = 3.0
     infer_method: str = "ode"
+    dcw_enabled: bool = True
+    dcw_mode: str = "double"
+    dcw_scaler: float = 0.05
+    dcw_high_scaler: float = 0.02
     enable_normalization: bool = True
     normalization_db: float = -1.0
+    # Match upstream text2music conditioning defaults.
+    # The package-owned DiT path collapses toward static tones when the
+    # text-to-music context is a repeated silence latent. A seeded random
+    # source context keeps the non-cover path musically varied while remaining
+    # deterministic for a given request seed.
     use_random_src_latents: bool = True
-    use_sft_prompt: bool = False
-    chunk_mask_mode: str = "zeros"  # zeros|ones
-    reference_mode: str = "zeros"  # zeros|silence
+    use_sft_prompt: bool = True
+    chunk_mask_mode: str = "auto"  # auto|zeros|ones
+    reference_mode: str = "silence"  # zeros|silence
 
     # VAE decode tiling (helps on MPS/unified memory).
     mps_decode_chunk_frames: int = 32
@@ -718,6 +799,29 @@ class AceStepV15BackendConfig:
 
     # When running on MPS, retry on CPU if an op is unsupported.
     auto_retry_cpu_on_mps_error: bool = True
+    mps_force_cpu_decode_min_duration_s: float = 30.0
+    mps_segment_generation_min_duration_s: float = 30.0
+    mps_segment_duration_s: float = 10.0
+    mps_segment_crossfade_s: float = 0.0
+
+    # Experimental internal 5Hz LM planner. Keep it opt-in because feeding its
+    # coarse audio-code hints as cover conditioning can imprint 5Hz artifacts.
+    use_audio_code_planner: bool = False
+    planner_min_duration_s: float = 10.0
+    lm_model_subfolder: str = "acestep-5Hz-lm-1.7B"
+    lm_fallback_repo_id: str = "ACE-Step/acestep-5Hz-lm-0.6B"
+    lm_device: str = "auto"  # auto|cuda|xpu|mps|cpu
+    lm_torch_dtype: str = "auto"  # auto|float32|float16|bfloat16
+    lm_temperature: float = 0.85
+    lm_cfg_scale: float = 2.0
+    lm_top_k: int = 0
+    lm_top_p: float = 0.9
+    lm_negative_prompt: str = "NO USER INPUT"
+    planner_cover_strength: float = 0.50
+    allow_direct_text_fallback: bool = True
+    quality_retry_enabled: bool = True
+    quality_retry_max_attempts: int = 3
+    quality_retry_fallback_seeds: tuple[int, ...] = (123, 124, 321)
 
 
 class AceStepV15Backend:
@@ -739,6 +843,13 @@ class AceStepV15Backend:
         self._text_tokenizer: Any = None
         self._text_encoder: Any = None
         self._silence_latent: Any = None
+        self._lm_tokenizer: Any = None
+        self._lm_model: Any = None
+        self._lm_device: Optional[str] = None
+        self._lm_dtype: Any = None
+        self._lm_model_label: Optional[str] = None
+        self._lm_audio_token_ids: tuple[int, ...] = ()
+        self._lm_think_end_token_id: Optional[int] = None
 
     def get_capabilities(self) -> MusicBackendCapabilities:
         return MusicBackendCapabilities(
@@ -799,7 +910,14 @@ class AceStepV15Backend:
         return dtype, vae_dtype
 
     def _ensure_loaded(self) -> None:
-        if self._loaded:
+        if (
+            self._loaded
+            and self._model is not None
+            and self._vae is not None
+            and self._text_tokenizer is not None
+            and self._text_encoder is not None
+            and self._silence_latent is not None
+        ):
             return
 
         device_pref = str(self._config.device or "auto").strip().lower() or "auto"
@@ -815,7 +933,6 @@ class AceStepV15Backend:
         _patch_transformers_rope_validation()
         _patch_transformers_torch_dtype_property()
         AutoencoderOobleck = _lazy_import_diffusers_oobleck()
-        hf_hub_download = _lazy_import_hf_hub_download()
         _patch_hf_hub_download()
 
         device = _resolve_device(torch, self._config.device)
@@ -831,6 +948,7 @@ class AceStepV15Backend:
         repo_id = str(self._config.repo_id)
         revision = self._config.revision
         cache_dir = self._config.cache_dir
+        local_files_only = bool(self._config.local_files_only)
 
         # Load core DiT model (ACE-Step v1.5 turbo).
         try:
@@ -840,6 +958,7 @@ class AceStepV15Backend:
                 pretrained_model_name_or_path=repo_id,
                 revision=revision,
                 cache_dir=cache_dir,
+                local_files_only=local_files_only,
                 subfolder=str(self._config.dit_subfolder),
             )
         except Exception as e:
@@ -858,6 +977,7 @@ class AceStepV15Backend:
                 cache_dir=cache_dir,
                 subfolder=str(self._config.text_encoder_subfolder),
                 trust_remote_code=False,
+                local_files_only=local_files_only,
             )
         except Exception as e:
             raise RuntimeError(f"Failed to load ACE-Step text tokenizer from {repo_id!r}: {e}") from e
@@ -871,6 +991,7 @@ class AceStepV15Backend:
                 cache_dir=cache_dir,
                 subfolder=str(self._config.text_encoder_subfolder),
                 trust_remote_code=False,
+                local_files_only=local_files_only,
             )
             self._text_encoder.to(text_device)
             self._text_encoder.eval()
@@ -888,6 +1009,7 @@ class AceStepV15Backend:
                 cache_dir=cache_dir,
                 subfolder=str(self._config.vae_subfolder),
                 low_cpu_mem_usage=False,
+                local_files_only=local_files_only,
             )
             self._vae.to(device)
             self._vae.eval()
@@ -896,12 +1018,17 @@ class AceStepV15Backend:
 
         # Load and transpose silence latent (stored as [1, C, T] in repo).
         try:
-            sl_path = hf_hub_download(
-                repo_id=repo_id,
-                revision=revision,
-                cache_dir=cache_dir,
-                filename=f"{self._config.dit_subfolder}/silence_latent.pt",
-            )
+            if os.path.isdir(repo_id):
+                sl_path = os.path.join(repo_id, str(self._config.dit_subfolder), "silence_latent.pt")
+            else:
+                hf_hub_download = _lazy_import_hf_hub_download()
+                sl_path = hf_hub_download(
+                    repo_id=repo_id,
+                    revision=revision,
+                    cache_dir=cache_dir,
+                    filename=f"{self._config.dit_subfolder}/silence_latent.pt",
+                    local_files_only=local_files_only,
+                )
             sl = torch.load(sl_path, map_location="cpu")  # tensor
             if not isinstance(sl, torch.Tensor):
                 raise TypeError(f"silence_latent.pt expected torch.Tensor, got {type(sl)!r}")
@@ -917,13 +1044,50 @@ class AceStepV15Backend:
         self._vae_dtype = vae_dtype
         self._loaded = True
 
-    def _tokenize_no_truncation(self, text: str) -> Tuple[Any, Any]:
-        """Tokenize without silent truncation. Raises if model_max_length is exceeded."""
+    def _release_lm_runtime(self) -> None:
+        self._lm_model = None
+        self._lm_tokenizer = None
+        self._lm_device = None
+        self._lm_dtype = None
+        self._lm_audio_token_ids = ()
+        self._lm_think_end_token_id = None
+        try:
+            import gc
+
+            gc.collect()
+        except Exception:
+            pass
+
+    def _seed_sampling_rng(self, seed: int) -> None:
+        torch = _lazy_import_torch()
+        seed_value = int(seed)
+        random.seed(seed_value)
+        torch.manual_seed(seed_value)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed_value)
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available() and hasattr(torch, "mps"):
+            try:
+                torch.mps.manual_seed(seed_value)
+            except Exception:
+                pass
+
+    def _tokenize_text_input(self, text: str, *, max_length: int) -> Tuple[Any, Any]:
+        """Tokenize text using upstream ACE-Step truncation limits."""
         tok = self._text_tokenizer
         if tok is None:
             raise RuntimeError("Text tokenizer not loaded")
 
-        out = tok(text, return_tensors="pt", padding=False, truncation=False)
+        kwargs = {
+            "return_tensors": "pt",
+            "padding": "longest",
+            "truncation": True,
+            "max_length": int(max_length),
+        }
+        try:
+            out = tok(text, **kwargs)
+        except TypeError:
+            kwargs.pop("max_length", None)
+            out = tok(text, **kwargs)
         input_ids = getattr(out, "input_ids", None)
         attention_mask = getattr(out, "attention_mask", None)
         if input_ids is None:
@@ -933,20 +1097,22 @@ class AceStepV15Backend:
             torch = _lazy_import_torch()
             attention_mask = torch.ones_like(input_ids)
 
-        # Guard against extremely long prompts.
-        max_len = getattr(tok, "model_max_length", None)
-        try:
-            max_len_int = int(max_len) if max_len is not None else None
-        except Exception:
-            max_len_int = None
-        if max_len_int and max_len_int > 0:
-            if int(input_ids.shape[-1]) > max_len_int:
-                raise ValueError(
-                    f"Prompt token length {int(input_ids.shape[-1])} exceeds model_max_length={max_len_int}. "
-                    "Shorten the prompt/lyrics, or configure a smaller model."
-                )
-
         return input_ids, attention_mask.bool()
+
+    def _get_silence_latent_slice(self, length: int, *, device: Optional[str] = None, dtype: Optional[Any] = None) -> Any:
+        silence = self._silence_latent
+        if silence is None:
+            raise RuntimeError("silence_latent not loaded")
+        target_len = max(1, int(length))
+        available = int(silence.shape[1])
+        if target_len <= available:
+            out = silence[:, :target_len, :]
+        else:
+            repeats = (target_len + available - 1) // available
+            out = silence.repeat(1, repeats, 1)[:, :target_len, :]
+        target_device = silence.device if device is None else device
+        target_dtype = silence.dtype if dtype is None else dtype
+        return out.to(device=target_device, dtype=target_dtype)
 
     def _encode_text_hidden(self, input_ids: Any, attention_mask: Any) -> Any:
         torch = _lazy_import_torch()
@@ -1014,36 +1180,34 @@ class AceStepV15Backend:
                 raise TypeError("VAE decode returned an unexpected type (missing .sample)")
             return sample
 
-        def _ensure_vae_cpu_float32() -> None:
+        def _move_vae_to_cpu_float32() -> None:
             if self._vae is None:
                 raise RuntimeError("VAE not loaded")
-            AutoencoderOobleck = _lazy_import_diffusers_oobleck()
-            _patch_oobleck_weight_norm(torch)
-            self._vae = _from_pretrained_diffusers(
-                AutoencoderOobleck,
-                dtype=torch.float32,
-                pretrained_model_name_or_path=str(self._config.repo_id),
-                revision=self._config.revision,
-                cache_dir=self._config.cache_dir,
-                subfolder=str(self._config.vae_subfolder),
-                low_cpu_mem_usage=False,
-            )
-            self._vae.to("cpu")
+            try:
+                self._vae.to(device="cpu", dtype=torch.float32)
+            except TypeError:
+                self._vae.to("cpu")
+                try:
+                    self._vae.float()
+                except Exception:
+                    pass
             self._vae.eval()
 
-        def _offload_mps_after_oom() -> None:
+        def _release_runtime_for_cpu_decode() -> None:
             if str(device) != "mps":
                 return
             try:
-                if self._model is not None:
-                    self._model.to("cpu")
+                self._model = None
             except Exception:
                 pass
             try:
-                if self._silence_latent is not None:
-                    self._silence_latent = self._silence_latent.to("cpu")
+                self._text_encoder = None
+                self._text_tokenizer = None
+                self._silence_latent = None
             except Exception:
                 pass
+            self._release_lm_runtime()
+            self._loaded = False
             try:
                 torch.mps.empty_cache()
             except Exception:
@@ -1054,6 +1218,23 @@ class AceStepV15Backend:
                 gc.collect()
             except Exception:
                 pass
+
+        def _switch_to_cpu_decode(*, reason: str, announce: bool) -> None:
+            nonlocal device, pred_latents_for_decode, wav_accum, chunk_frames, overlap_frames, stride
+            if announce:
+                print(reason, file=sys.stderr)
+            _release_runtime_for_cpu_decode()
+            _move_vae_to_cpu_float32()
+            pred_latents_for_decode = pred_latents_for_decode.detach().to("cpu", dtype=torch.float32)
+            device = "cpu"
+            chunk_frames = int(self._config.cpu_decode_chunk_frames)
+            overlap_frames = int(self._config.cpu_decode_overlap_frames)
+            stride = max(1, int(chunk_frames - overlap_frames))
+            if wav_accum is not None:
+                try:
+                    wav_accum = wav_accum.to("cpu", dtype=torch.float32)
+                except Exception:
+                    wav_accum = wav_accum.to("cpu")
 
         # For MPS: use small chunks to avoid kernel limits.
         if device == "mps":
@@ -1076,6 +1257,20 @@ class AceStepV15Backend:
         ratio = None
         overlap_samples = 0
 
+        force_cpu_duration = float(self._config.mps_force_cpu_decode_min_duration_s)
+        if (
+            device == "mps"
+            and force_cpu_duration > 0.0
+            and total_frames >= int(round(force_cpu_duration * float(self._config.frames_per_second)))
+        ):
+            _switch_to_cpu_decode(
+                reason=(
+                    "WARNING #FALLBACK : Long ACE-Step VAE decode on MPS is memory-unstable; "
+                    "switching decode to CPU float32."
+                ),
+                announce=True,
+            )
+
         for start in range(0, total_frames, stride):
             end = min(total_frames, start + chunk_frames)
             chunk = pred_latents_for_decode[..., start:end]
@@ -1087,35 +1282,13 @@ class AceStepV15Backend:
                 wav_chunk = _vae_decode(chunk)  # [B, 2, S]
             except (NotImplementedError, RuntimeError) as e:
                 if device == "mps" and bool(self._config.auto_retry_cpu_on_mps_error):
-                    print(
-                        "WARNING #FALLBACK : MPS VAE decode failed; retrying decode on CPU float32. "
-                        f"(error={type(e).__name__}: {e})",
-                        file=sys.stderr,
+                    _switch_to_cpu_decode(
+                        reason=(
+                            "WARNING #FALLBACK : MPS VAE decode failed; retrying decode on CPU float32. "
+                            f"(error={type(e).__name__}: {e})"
+                        ),
+                        announce=True,
                     )
-                    # Move VAE to CPU and decode the remainder on CPU to avoid repeated OOMs.
-                    _ensure_vae_cpu_float32()
-                    _offload_mps_after_oom()
-                    try:
-                        pred_latents_for_decode = pred_latents_for_decode.to("cpu", dtype=torch.float32)
-                    except Exception as err:
-                        _offload_mps_after_oom()
-                        try:
-                            pred_latents_for_decode = pred_latents_for_decode.to("cpu", dtype=torch.float32)
-                        except Exception as err2:
-                            raise RuntimeError(
-                                "Failed to move latents to CPU after MPS OOM. "
-                                "Try lowering duration or increasing --mps-max-memory-gb (<=16)."
-                            ) from err2
-                    try:
-                        torch.mps.empty_cache()
-                    except Exception:
-                        pass
-                    device = "cpu"
-                    if wav_accum is not None:
-                        try:
-                            wav_accum = wav_accum.to("cpu", dtype=torch.float32)
-                        except Exception:
-                            wav_accum = wav_accum.to("cpu")
                     chunk = pred_latents_for_decode[..., start:end]
                     wav_chunk = _vae_decode(chunk)
                 else:
@@ -1163,12 +1336,718 @@ class AceStepV15Backend:
             raise RuntimeError("VAE tiled decode produced no output")
         return wav_accum
 
+    def _planner_enabled_for_duration(self, duration_s: float) -> bool:
+        if not bool(self._config.use_audio_code_planner):
+            return False
+        return float(duration_s) >= float(self._config.planner_min_duration_s)
+
+    def _resolve_lm_runtime(self, torch_mod: Any) -> Tuple[str, Any]:
+        device_pref = str(self._config.lm_device or "auto").strip().lower() or "auto"
+        if device_pref == "auto":
+            if str(self._config.device or "auto").strip().lower() in {"cuda", "xpu"}:
+                device = _resolve_device(torch_mod, str(self._config.device))
+            else:
+                device = "cpu"
+        else:
+            device = device_pref
+
+        if device == "auto":
+            device = "cpu"
+
+        dtype_pref = str(self._config.lm_torch_dtype or "auto").strip().lower() or "auto"
+        if dtype_pref == "auto":
+            if device in {"cuda", "xpu"}:
+                dtype = torch_mod.bfloat16
+            elif device == "mps":
+                dtype = torch_mod.float16
+            else:
+                dtype = torch_mod.float32
+        else:
+            dtype = _dtype_from_str(torch_mod, dtype_pref)
+
+        if device == "cpu" and dtype == torch_mod.float16:
+            dtype = torch_mod.float32
+        if device == "mps" and dtype == torch_mod.bfloat16:
+            dtype = torch_mod.float16
+        return device, dtype
+
+    def _lm_candidate_sources(self, lm_device: str) -> tuple[tuple[str, Optional[str], str], ...]:
+        primary = (
+            str(self._config.repo_id),
+            str(self._config.lm_model_subfolder or "").strip() or None,
+            str(self._config.lm_model_subfolder or "").strip() or "acestep-5Hz-lm-1.7B",
+        )
+        fallback_repo = str(self._config.lm_fallback_repo_id or "").strip()
+        candidates = [primary]
+        if fallback_repo:
+            candidates.append((fallback_repo, None, fallback_repo.rsplit("/", 1)[-1]))
+        return tuple(candidates)
+
+    def _ensure_lm_loaded(self) -> None:
+        if self._lm_model is not None and self._lm_tokenizer is not None:
+            return
+
+        torch = _lazy_import_torch()
+        AutoModelForCausalLM, AutoTokenizer = _lazy_import_transformers_lm()
+        lm_device, lm_dtype = self._resolve_lm_runtime(torch)
+
+        last_error: Optional[Exception] = None
+        local_files_only = bool(self._config.local_files_only)
+        for repo_id, subfolder, label in self._lm_candidate_sources(lm_device):
+            try:
+                tok_kwargs = {
+                    "pretrained_model_name_or_path": repo_id,
+                    "revision": self._config.revision if repo_id == str(self._config.repo_id) else None,
+                    "cache_dir": self._config.cache_dir,
+                    "trust_remote_code": False,
+                    "local_files_only": local_files_only,
+                }
+                if subfolder:
+                    tok_kwargs["subfolder"] = subfolder
+                tok = AutoTokenizer.from_pretrained(**tok_kwargs)
+
+                model_kwargs = {
+                    "pretrained_model_name_or_path": repo_id,
+                    "revision": self._config.revision if repo_id == str(self._config.repo_id) else None,
+                    "cache_dir": self._config.cache_dir,
+                    "local_files_only": local_files_only,
+                }
+                if subfolder:
+                    model_kwargs["subfolder"] = subfolder
+                model = _from_pretrained_transformers(AutoModelForCausalLM, dtype=lm_dtype, **model_kwargs)
+                model.to(lm_device)
+                model.eval()
+
+                if getattr(tok, "pad_token_id", None) is None and getattr(tok, "eos_token_id", None) is not None:
+                    tok.pad_token = tok.eos_token
+
+                audio_tokens = [
+                    token_id
+                    for token, token_id in tok.get_added_vocab().items()
+                    if isinstance(token, str) and token.startswith("<|audio_code_")
+                ]
+                if not audio_tokens:
+                    raise RuntimeError("LM tokenizer did not expose any <|audio_code_...|> tokens.")
+                audio_token_ids = tuple(sorted(audio_tokens))
+
+                think_end_ids = tok.encode("</think>", add_special_tokens=False)
+                if not think_end_ids:
+                    raise RuntimeError("LM tokenizer could not encode </think>.")
+
+                self._lm_tokenizer = tok
+                self._lm_model = model
+                self._lm_device = lm_device
+                self._lm_dtype = lm_dtype
+                self._lm_model_label = label
+                self._lm_audio_token_ids = audio_token_ids
+                self._lm_think_end_token_id = int(think_end_ids[-1])
+                return
+            except Exception as exc:
+                last_error = exc
+
+        raise RuntimeError(f"Failed to load internal ACE-Step 5Hz LM planner: {last_error}") from last_error
+
+    def _build_lm_cot_prompt(self, caption: str, lyrics: str) -> str:
+        if self._lm_tokenizer is None:
+            raise RuntimeError("LM tokenizer not loaded")
+        return self._lm_tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": "# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n"},
+                {"role": "user", "content": f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+    def _build_lm_codes_prompt(self, caption: str, lyrics: str, cot_text: str) -> str:
+        if self._lm_tokenizer is None:
+            raise RuntimeError("LM tokenizer not loaded")
+        formatted = self._lm_tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": "# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n"},
+                {"role": "user", "content": f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        return formatted + cot_text + "\n\n"
+
+    def _build_lm_codes_unconditional_prompt(self, negative_prompt: str) -> str:
+        if self._lm_tokenizer is None:
+            raise RuntimeError("LM tokenizer not loaded")
+        user_prompt = str(negative_prompt or "").strip() or "NO USER INPUT"
+        formatted = self._lm_tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": "# Instruction\nGenerate audio semantic tokens based on the given conditions:\n\n"},
+                {"role": "user", "content": user_prompt},
+            ],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        return formatted + "<think>\n\n</think>\n\n"
+
+    def _apply_lm_top_k_filter(self, logits: Any, top_k: int) -> Any:
+        torch = _lazy_import_torch()
+        if int(top_k) <= 0:
+            return logits
+        k = min(int(top_k), int(logits.shape[-1]))
+        threshold = torch.topk(logits, k)[0][..., -1, None]
+        return logits.masked_fill(logits < threshold, float("-inf"))
+
+    def _apply_lm_top_p_filter(self, logits: Any, top_p: float) -> Any:
+        torch = _lazy_import_torch()
+        if not (0.0 < float(top_p) < 1.0):
+            return logits
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(torch.softmax(sorted_logits.float(), dim=-1), dim=-1)
+        sorted_indices_to_remove = cumulative_probs > float(top_p)
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+        sorted_indices_to_remove[..., 0] = False
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+        return logits.masked_fill(indices_to_remove, float("-inf"))
+
+    def _sample_lm_token(self, logits: Any, temperature: float) -> Any:
+        torch = _lazy_import_torch()
+        if float(temperature) <= 0.0:
+            return torch.argmax(logits, dim=-1)
+        scaled = logits.float() / float(temperature)
+        probs = torch.softmax(scaled, dim=-1)
+        return torch.multinomial(probs, num_samples=1).squeeze(-1)
+
+    def _generate_lm_tokens(
+        self,
+        *,
+        prompt_text: str,
+        max_new_tokens: int,
+        eos_token_id: int,
+        prefix_allowed_tokens_fn: Any = None,
+    ) -> str:
+        torch = _lazy_import_torch()
+        self._ensure_lm_loaded()
+        assert self._lm_tokenizer is not None
+        assert self._lm_model is not None
+        assert self._lm_device is not None
+
+        prompt = self._lm_tokenizer(prompt_text, return_tensors="pt", padding=False, truncation=False)
+        input_ids = prompt.input_ids.to(self._lm_device)
+        attention_mask = prompt.attention_mask.to(self._lm_device)
+
+        with torch.inference_mode():
+            outputs = self._lm_model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                do_sample=True,
+                temperature=float(self._config.lm_temperature),
+                top_k=int(self._config.lm_top_k),
+                top_p=float(self._config.lm_top_p),
+                max_new_tokens=int(max_new_tokens),
+                eos_token_id=int(eos_token_id),
+                pad_token_id=int(self._lm_tokenizer.eos_token_id),
+                prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+                use_cache=True,
+            )
+
+        generated_ids = outputs[0, input_ids.shape[-1] :]
+        return self._lm_tokenizer.decode(generated_ids, skip_special_tokens=False)
+
+    def _generate_lm_audio_codes_cfg(
+        self,
+        *,
+        caption: str,
+        lyrics: str,
+        cot_text: str,
+        target_code_count: int,
+    ) -> Any:
+        torch = _lazy_import_torch()
+        self._ensure_lm_loaded()
+        assert self._lm_tokenizer is not None
+        assert self._lm_model is not None
+        assert self._lm_device is not None
+        if not self._lm_audio_token_ids:
+            raise RuntimeError("LM tokenizer did not expose any <|audio_code_...|> tokens.")
+
+        conditional_prompt = self._build_lm_codes_prompt(caption, lyrics, cot_text)
+        unconditional_prompt = self._build_lm_codes_unconditional_prompt(str(self._config.lm_negative_prompt))
+
+        original_padding_side = getattr(self._lm_tokenizer, "padding_side", "right")
+        self._lm_tokenizer.padding_side = "left"
+        try:
+            batch = self._lm_tokenizer(
+                [conditional_prompt, unconditional_prompt],
+                return_tensors="pt",
+                padding=True,
+                truncation=False,
+            )
+        finally:
+            self._lm_tokenizer.padding_side = original_padding_side
+
+        input_ids = batch.input_ids.to(self._lm_device)
+        attention_mask = batch.attention_mask.to(self._lm_device)
+        prompt_len = int(input_ids.shape[-1])
+        eos_token_id = int(self._lm_tokenizer.eos_token_id)
+        pad_token_id = eos_token_id
+        valid_audio_indices = torch.tensor(self._lm_audio_token_ids, device=self._lm_device, dtype=torch.long)
+
+        generated_ids = input_ids.clone()
+        attn_mask = attention_mask.clone()
+        past_key_values = None
+        model_kwargs: Dict[str, Any] = {"attention_mask": attn_mask}
+        max_new_tokens = int(target_code_count) + 10
+        generated_code_count = 0
+
+        with torch.inference_mode():
+            for _ in range(max_new_tokens):
+                if past_key_values is None:
+                    outputs = self._lm_model(
+                        input_ids=generated_ids,
+                        attention_mask=attn_mask,
+                        use_cache=True,
+                    )
+                else:
+                    outputs = self._lm_model(
+                        input_ids=generated_ids[:, -1:],
+                        attention_mask=attn_mask,
+                        past_key_values=past_key_values,
+                        use_cache=True,
+                    )
+
+                logits = outputs.logits[:, -1, :]
+                cond_logits = logits[0:1].float()
+                uncond_logits = logits[1:2].float()
+                cfg_logits = torch.full_like(cond_logits, float("-inf"))
+
+                if generated_code_count < int(target_code_count):
+                    cfg_valid = uncond_logits[:, valid_audio_indices] + float(self._config.lm_cfg_scale) * (
+                        cond_logits[:, valid_audio_indices] - uncond_logits[:, valid_audio_indices]
+                    )
+                    cfg_logits[:, valid_audio_indices] = cfg_valid
+                else:
+                    cfg_logits[:, eos_token_id] = 0.0
+
+                cfg_logits = torch.nan_to_num(cfg_logits, nan=float("-inf"))
+                cfg_logits = self._apply_lm_top_k_filter(cfg_logits, int(self._config.lm_top_k))
+                cfg_logits = self._apply_lm_top_p_filter(cfg_logits, float(self._config.lm_top_p))
+
+                next_token = self._sample_lm_token(cfg_logits, float(self._config.lm_temperature))
+                token_id = int(next_token[0].item())
+
+                next_token_pair = next_token.repeat(2).unsqueeze(-1)
+                generated_ids = torch.cat([generated_ids, next_token_pair], dim=1)
+                attn_mask = torch.cat(
+                    [attn_mask, torch.ones((2, 1), device=self._lm_device, dtype=attn_mask.dtype)],
+                    dim=1,
+                )
+                model_kwargs["attention_mask"] = attn_mask
+                if hasattr(outputs, "past_key_values"):
+                    past_key_values = outputs.past_key_values
+
+                if token_id == eos_token_id:
+                    break
+                generated_code_count += 1
+
+        generated_token_ids = generated_ids[0, prompt_len:]
+        output_text = self._lm_tokenizer.decode(generated_token_ids, skip_special_tokens=False)
+        audio_token_texts = re.findall(r"<\|audio_code_(\d+)\|>", output_text)
+        if len(audio_token_texts) < int(target_code_count):
+            raise RuntimeError(
+                f"Internal ACE-Step LM planner generated only {len(audio_token_texts)} audio codes "
+                f"for target_count={int(target_code_count)}."
+            )
+        code_ids = [int(x) for x in audio_token_texts[: int(target_code_count)]]
+        return torch.tensor(code_ids, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
+
+    def _parse_lm_output(self, output_text: str) -> Tuple[Dict[str, Any], str]:
+        metadata: Dict[str, Any] = {}
+        audio_codes = "".join(re.findall(r"<\|audio_code_\d+\|>", str(output_text or "")))
+
+        reasoning_text = None
+        match = re.search(r"<think>(.*?)</think>", str(output_text or ""), re.DOTALL)
+        if match:
+            reasoning_text = str(match.group(1)).strip()
+        elif audio_codes:
+            reasoning_text = str(output_text).split("<|audio_code_")[0].strip()
+        else:
+            reasoning_text = str(output_text or "").strip()
+
+        if reasoning_text:
+            current_key = None
+            current_value_lines = []
+
+            def _save() -> None:
+                nonlocal current_key, current_value_lines
+                if not current_key or not current_value_lines:
+                    current_key = None
+                    current_value_lines = []
+                    return
+                value = "\n".join(current_value_lines).strip()
+                if current_key == "caption":
+                    metadata["caption"] = _postprocess_caption_yaml_value(value)
+                elif current_key == "bpm":
+                    try:
+                        metadata["bpm"] = int(value)
+                    except Exception:
+                        metadata["bpm"] = value
+                elif current_key == "duration":
+                    try:
+                        metadata["duration"] = int(value)
+                    except Exception:
+                        metadata["duration"] = value
+                elif current_key == "language":
+                    metadata["language"] = value
+                elif current_key == "keyscale":
+                    metadata["keyscale"] = value
+                elif current_key == "timesignature":
+                    metadata["timesignature"] = value
+                current_key = None
+                current_value_lines = []
+
+            for line in reasoning_text.splitlines():
+                if line.strip().startswith("<"):
+                    continue
+                if line and not line[0].isspace() and ":" in line:
+                    _save()
+                    key, value = line.split(":", 1)
+                    current_key = str(key).strip().lower()
+                    if value.strip():
+                        current_value_lines.append(value.strip())
+                elif current_key and (line.startswith(" ") or line.startswith("\t")):
+                    current_value_lines.append(line.strip())
+            _save()
+
+        return metadata, audio_codes
+
+    def _format_metadata_as_cot(self, metadata: Dict[str, Any]) -> str:
+        ordered_keys = ("bpm", "caption", "duration", "keyscale", "language", "timesignature")
+        lines = []
+        for key in ordered_keys:
+            value = metadata.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text:
+                continue
+            if key == "timesignature" and text.endswith("/4"):
+                text = text.split("/")[0]
+            lines.append(f"{key}: {text}")
+        body = "\n".join(lines)
+        return f"<think>\n{body}\n</think>"
+
+    def _generate_planner_metadata(
+        self,
+        *,
+        caption: str,
+        lyrics: str,
+        duration_s: float,
+        vocal_language: str,
+        bpm: Optional[int],
+        keyscale: str,
+        timesignature: str,
+    ) -> Dict[str, Any]:
+        self._ensure_lm_loaded()
+        assert self._lm_think_end_token_id is not None
+        prompt = self._build_lm_cot_prompt(caption, lyrics)
+        output_text = self._generate_lm_tokens(
+            prompt_text=prompt,
+            max_new_tokens=max(256, int(round(float(duration_s) * 5.0)) + 500),
+            eos_token_id=int(self._lm_think_end_token_id),
+        )
+        metadata, _ = self._parse_lm_output(output_text)
+        if not metadata.get("caption"):
+            metadata["caption"] = caption
+        if not metadata.get("duration"):
+            metadata["duration"] = int(round(float(duration_s)))
+        if lyrics.strip() and not metadata.get("language"):
+            metadata["language"] = vocal_language
+        if bpm is not None and metadata.get("bpm") is None:
+            metadata["bpm"] = int(bpm)
+        if keyscale and metadata.get("keyscale") is None:
+            metadata["keyscale"] = keyscale
+        if timesignature and metadata.get("timesignature") is None:
+            metadata["timesignature"] = timesignature
+        return metadata
+
+    def _generate_audio_code_ids(
+        self,
+        *,
+        caption: str,
+        lyrics: str,
+        cot_text: str,
+        target_code_count: int,
+    ) -> Any:
+        cfg_scale = float(self._config.lm_cfg_scale)
+        if cfg_scale > 1.0:
+            return self._generate_lm_audio_codes_cfg(
+                caption=caption,
+                lyrics=lyrics,
+                cot_text=cot_text,
+                target_code_count=target_code_count,
+            )
+
+        torch = _lazy_import_torch()
+        self._ensure_lm_loaded()
+        assert self._lm_tokenizer is not None
+        assert self._lm_audio_token_ids
+
+        prompt_text = self._build_lm_codes_prompt(caption, lyrics, cot_text)
+        prompt = self._lm_tokenizer(prompt_text, return_tensors="pt", padding=False, truncation=False)
+        prompt_len = int(prompt.input_ids.shape[-1])
+        eos_token_id = int(self._lm_tokenizer.eos_token_id)
+        allowed_audio_ids = self._lm_audio_token_ids
+
+        def _prefix_allowed_tokens_fn(_batch_id: int, input_ids: Any) -> Any:
+            generated_count = max(0, int(input_ids.shape[-1]) - prompt_len)
+            if generated_count < int(target_code_count):
+                return allowed_audio_ids
+            return (eos_token_id,)
+
+        output_text = self._generate_lm_tokens(
+            prompt_text=prompt_text,
+            max_new_tokens=int(target_code_count) + 10,
+            eos_token_id=eos_token_id,
+            prefix_allowed_tokens_fn=_prefix_allowed_tokens_fn,
+        )
+        audio_token_texts = re.findall(r"<\|audio_code_(\d+)\|>", output_text)
+        if len(audio_token_texts) < int(target_code_count):
+            raise RuntimeError(
+                f"Internal ACE-Step LM planner generated only {len(audio_token_texts)} audio codes "
+                f"for target_count={int(target_code_count)}."
+            )
+        code_ids = [int(x) for x in audio_token_texts[: int(target_code_count)]]
+        return torch.tensor(code_ids, dtype=torch.long).unsqueeze(0).unsqueeze(-1)
+
+    def _maybe_plan_audio_codes(
+        self,
+        *,
+        prompt: str,
+        lyrics: str,
+        duration_s: float,
+        vocal_language: str,
+        bpm: Optional[int],
+        keyscale: str,
+        timesignature: str,
+        seed: Optional[int],
+    ) -> Optional[Dict[str, Any]]:
+        if not self._planner_enabled_for_duration(duration_s):
+            return None
+        if seed is not None:
+            self._seed_sampling_rng(int(seed))
+
+        planner_metadata = self._generate_planner_metadata(
+            caption=prompt or "music",
+            lyrics=lyrics,
+            duration_s=duration_s,
+            vocal_language=vocal_language,
+            bpm=bpm,
+            keyscale=keyscale,
+            timesignature=timesignature,
+        )
+        cot_text = self._format_metadata_as_cot(planner_metadata)
+        target_code_count = max(1, int(round(float(duration_s) * 5.0)))
+        audio_codes = self._generate_audio_code_ids(
+            caption=str(planner_metadata.get("caption") or prompt or "music"),
+            lyrics=lyrics,
+            cot_text=cot_text,
+            target_code_count=target_code_count,
+        )
+        return {
+            "caption": str(planner_metadata.get("caption") or prompt or "music"),
+            "vocal_language": str(planner_metadata.get("language") or vocal_language or "unknown"),
+            "bpm": planner_metadata.get("bpm"),
+            "keyscale": str(planner_metadata.get("keyscale") or keyscale or ""),
+            "timesignature": str(planner_metadata.get("timesignature") or timesignature or ""),
+            "cot_text": cot_text,
+            "audio_codes": audio_codes,
+            "audio_code_count": int(target_code_count),
+            "lm_model": str(self._lm_model_label or ""),
+        }
+
+    def _decode_audio_code_ids_to_lm_hints(self, *, audio_codes: Any, device: str, dtype: Any) -> Any:
+        torch = _lazy_import_torch()
+        if self._model is None:
+            raise RuntimeError("ACE-Step model not loaded")
+        tokenizer = getattr(self._model, "tokenizer", None)
+        detokenizer = getattr(self._model, "detokenizer", None)
+        quantizer = getattr(tokenizer, "quantizer", None) if tokenizer is not None else None
+        if quantizer is None or detokenizer is None:
+            raise RuntimeError("ACE-Step model is missing audio quantizer/detokenizer for audio-code conditioning")
+
+        indices = torch.as_tensor(audio_codes, device=device, dtype=torch.long)
+        if indices.ndim == 1:
+            indices = indices.unsqueeze(0).unsqueeze(-1)
+        elif indices.ndim == 2:
+            indices = indices.unsqueeze(-1)
+        elif indices.ndim != 3:
+            raise ValueError(f"audio_codes must have rank 1/2/3; got shape={tuple(indices.shape)}")
+
+        decode_device = device
+        decode_dtype = dtype
+        restore_modules = False
+        if str(device) == "mps":
+            print(
+                "WARNING #FALLBACK : Running ACE-Step audio-code detokenizer on CPU float32 for MPS compatibility; "
+                "planner hints are cast back to the model dtype/device.",
+                file=sys.stderr,
+            )
+            decode_device = "cpu"
+            decode_dtype = torch.float32
+            restore_modules = True
+
+        if restore_modules:
+            try:
+                tokenizer.to(device=decode_device, dtype=decode_dtype)
+            except Exception:
+                tokenizer.to(decode_device)
+            try:
+                detokenizer.to(device=decode_device, dtype=decode_dtype)
+            except Exception:
+                detokenizer.to(decode_device)
+
+        try:
+            indices = indices.to(device=decode_device)
+            with torch.inference_mode():
+                quantized = quantizer.get_output_from_indices(indices)
+                if torch.is_floating_point(quantized) and quantized.dtype != decode_dtype:
+                    quantized = quantized.to(dtype=decode_dtype)
+                lm_hints = detokenizer(quantized)
+        finally:
+            if restore_modules:
+                try:
+                    tokenizer.to(device=device, dtype=dtype)
+                except Exception:
+                    tokenizer.to(device)
+                try:
+                    detokenizer.to(device=device, dtype=dtype)
+                except Exception:
+                    detokenizer.to(device)
+
+        if torch.is_floating_point(lm_hints):
+            lm_hints = lm_hints.to(device=device, dtype=dtype)
+        else:
+            lm_hints = lm_hints.to(device=device)
+        return lm_hints
+
+    def _should_segment_long_mps_generation(
+        self,
+        *,
+        resolved_device: str,
+        duration_s: float,
+        planner: Optional[Dict[str, Any]],
+        extra: Dict[str, Any],
+    ) -> bool:
+        if bool(extra.get("_acestep_segmented_run")):
+            return False
+        if str(resolved_device) != "mps":
+            return False
+        if planner is None or planner.get("audio_codes") is None:
+            return False
+        if float(duration_s) < float(self._config.mps_segment_generation_min_duration_s):
+            return False
+        segment_s = float(self._config.mps_segment_duration_s)
+        return segment_s > 0.0 and segment_s < float(duration_s)
+
+    def _generate_segmented_long_audio(
+        self,
+        *,
+        request: AudioGenerationRequest,
+        planner: Dict[str, Any],
+        extra: Dict[str, Any],
+    ) -> GeneratedAsset:
+        torch = _lazy_import_torch()
+
+        planner_codes = planner.get("audio_codes")
+        if planner_codes is None:
+            raise RuntimeError("Segmented long-generation requested without planner audio codes.")
+        planner_codes = torch.as_tensor(planner_codes, dtype=torch.long)
+        if planner_codes.ndim == 2:
+            planner_codes = planner_codes.unsqueeze(-1)
+        if planner_codes.ndim != 3 or int(planner_codes.shape[0]) != 1:
+            raise ValueError(f"planner audio codes must have shape [1, T, 1]; got {tuple(planner_codes.shape)}")
+
+        segment_duration_s = float(self._config.mps_segment_duration_s)
+        codes_per_second = 5.0
+        segment_code_count = max(1, int(round(segment_duration_s * codes_per_second)))
+        total_codes = int(planner_codes.shape[1])
+        crossfade_s = max(0.0, float(self._config.mps_segment_crossfade_s))
+        base_seed = int(request.seed) if isinstance(request.seed, int) and int(request.seed) >= 0 else 123
+        base_extra = {k: v for k, v in dict(extra).items() if not str(k).startswith("_acestep_")}
+
+        segment_wavs = []
+        segment_sample_rate = None
+        final_meta: Dict[str, Any] = {}
+        segment_count = 0
+
+        for segment_index, code_start in enumerate(range(0, total_codes, segment_code_count)):
+            code_end = min(total_codes, code_start + segment_code_count)
+            segment_codes = planner_codes[:, code_start:code_end, :].clone()
+            current_duration_s = float(segment_codes.shape[1]) / codes_per_second
+
+            segment_planner = dict(planner)
+            segment_planner["audio_codes"] = segment_codes
+            segment_planner["audio_code_count"] = int(segment_codes.shape[1])
+
+            segment_extra = dict(base_extra)
+            segment_extra["_acestep_internal_planner"] = segment_planner
+            segment_extra["_acestep_segmented_run"] = True
+
+            segment_request = replace(
+                request,
+                duration_s=current_duration_s,
+                seed=int(base_seed + segment_index),
+                extra=segment_extra,
+            )
+            segment_asset = self.generate_audio(segment_request)
+            segment_wav, sample_rate = _decode_wav_bytes(segment_asset.data)
+            if segment_sample_rate is None:
+                segment_sample_rate = int(sample_rate)
+            elif int(sample_rate) != int(segment_sample_rate):
+                raise RuntimeError(
+                    f"Segmented ACE-Step generation produced inconsistent sample rates: "
+                    f"{segment_sample_rate} vs {sample_rate}"
+                )
+            segment_wavs.append(segment_wav)
+            final_meta = dict(segment_asset.metadata)
+            segment_count += 1
+
+        if not segment_wavs or segment_sample_rate is None:
+            raise RuntimeError("Segmented ACE-Step generation produced no audio segments.")
+
+        stitched = segment_wavs[0]
+        overlap_samples = int(round(crossfade_s * float(segment_sample_rate)))
+        for segment_wav in segment_wavs[1:]:
+            if overlap_samples <= 0:
+                stitched = torch.cat([stitched, segment_wav], dim=-1)
+                continue
+            overlap = min(overlap_samples, int(stitched.shape[-1]), int(segment_wav.shape[-1]))
+            if overlap <= 0:
+                stitched = torch.cat([stitched, segment_wav], dim=-1)
+                continue
+            fade_out = torch.linspace(1.0, 0.0, overlap, dtype=stitched.dtype)
+            fade_in = 1.0 - fade_out
+            mixed = stitched[:, -overlap:] * fade_out + segment_wav[:, :overlap] * fade_in
+            stitched = torch.cat([stitched[:, :-overlap], mixed, segment_wav[:, overlap:]], dim=-1)
+
+        stitched = _remove_dc_offset(stitched)
+        if bool(self._config.enable_normalization):
+            stitched = _peak_normalize(stitched, target_db=float(self._config.normalization_db))
+        stitched = _ensure_finite_audio(stitched)
+
+        final_meta.update(
+            {
+                "duration_s": float(stitched.shape[-1]) / float(segment_sample_rate),
+                "segmented_long_generation": True,
+                "segment_count": int(segment_count),
+                "segment_duration_s": float(segment_duration_s),
+                "segment_crossfade_s": float(crossfade_s),
+            }
+        )
+        return GeneratedAsset(
+            data=_encode_wav_bytes(stitched, sample_rate=int(segment_sample_rate)),
+            mime_type="audio/wav",
+            metadata=final_meta,
+        )
+
     def generate_audio(self, request: AudioGenerationRequest) -> GeneratedAsset:
         torch = _lazy_import_torch()
-        self._ensure_loaded()
-
-        device = str(self._device or "cpu")
-        dtype = self._dtype
 
         if request.guidance_scale is not None:
             raise ValueError(
@@ -1188,6 +2067,75 @@ class AceStepV15Backend:
         if duration_s <= 0:
             duration_s = float(self._config.default_duration_s)
 
+        extra = dict(request.extra or {})
+        requested_bpm = extra.get("bpm")
+        try:
+            bpm = int(requested_bpm) if requested_bpm is not None else None
+        except Exception:
+            bpm = None
+        keyscale = str(extra.get("keyscale") or "").strip()
+        timesignature = str(extra.get("timesignature") or "").strip()
+        vocal_language = str(request.vocal_language or "unknown").strip() or "unknown"
+
+        user_seed_flag = extra.get("_acestep_user_seed_provided")
+        request_has_seed = isinstance(request.seed, int) and int(request.seed) >= 0
+        if isinstance(user_seed_flag, bool):
+            seed_was_provided = bool(user_seed_flag)
+        else:
+            seed_was_provided = request_has_seed
+        seed = int(request.seed) if request_has_seed else random.randint(0, 2**32 - 1)
+        extra.setdefault("_acestep_user_seed_provided", bool(seed_was_provided))
+
+        planner = None
+        planner_error = None
+        injected_planner = extra.get("_acestep_internal_planner")
+        if isinstance(injected_planner, dict):
+            planner = dict(injected_planner)
+        elif self._planner_enabled_for_duration(duration_s):
+            try:
+                planner = self._maybe_plan_audio_codes(
+                    prompt=prompt or "music",
+                    lyrics=lyrics or "",
+                    duration_s=duration_s,
+                    vocal_language=vocal_language,
+                    bpm=bpm,
+                    keyscale=keyscale,
+                    timesignature=timesignature,
+                    seed=int(seed),
+                )
+            except Exception as exc:
+                planner_error = str(exc)
+                if not bool(self._config.allow_direct_text_fallback):
+                    raise
+                print(
+                    "WARNING #FALLBACK : Internal ACE-Step audio-code planner failed; "
+                    f"falling back to direct text conditioning. (error={type(exc).__name__}: {exc})",
+                    file=sys.stderr,
+                )
+            finally:
+                # The internal 5 Hz LM is only needed to materialize planning
+                # metadata + audio codes. Drop it before DiT/VAE work to keep
+                # unified-memory pressure under control on Apple Silicon.
+                self._release_lm_runtime()
+
+        resolved_device = _resolve_device(torch, self._config.device)
+        if self._should_segment_long_mps_generation(
+            resolved_device=resolved_device,
+            duration_s=duration_s,
+            planner=planner,
+            extra=extra,
+        ):
+            return self._generate_segmented_long_audio(
+                request=request,
+                planner=planner,
+                extra=extra,
+            )
+
+        self._ensure_loaded()
+
+        device = str(self._device or "cpu")
+        dtype = self._dtype
+
         # Turbo schedules are calibrated for fix_nfe=8 (as shipped in the checkpoint repo).
         if int(self._config.fix_nfe) != 8:
             raise ValueError("ACE-Step v1.5 turbo backend only supports fix_nfe=8 (v1).")
@@ -1203,35 +2151,73 @@ class AceStepV15Backend:
         if latent_len > 15000:
             raise ValueError("ACE-Step v1.5 supports up to ~600s (15000 frames @ 25Hz). Reduce duration_s.")
 
+        effective_caption = str(planner.get("caption") if isinstance(planner, dict) else (prompt or "music")) or "music"
+        effective_vocal_language = str(
+            planner.get("vocal_language") if isinstance(planner, dict) else vocal_language
+        ).strip() or "unknown"
+        effective_bpm = bpm
+        if effective_bpm is None and isinstance(planner, dict):
+            try:
+                planned_bpm = planner.get("bpm")
+                effective_bpm = int(planned_bpm) if planned_bpm is not None else None
+            except Exception:
+                effective_bpm = None
+        effective_keyscale = str(planner.get("keyscale") if isinstance(planner, dict) else keyscale).strip()
+        effective_timesignature = str(
+            planner.get("timesignature") if isinstance(planner, dict) else timesignature
+        ).strip()
+        planner_audio_codes = planner.get("audio_codes") if isinstance(planner, dict) else None
+        use_planner_conditioning = planner_audio_codes is not None
+
         # Build caption conditioning text.
-        if bool(self._config.use_sft_prompt):
-            instruction = "Fill the audio semantic mask based on the given conditions:"
-            metas = _default_meta_string(duration_s)
-            caption_input = _sft_gen_prompt(instruction, prompt, metas)
+        if use_planner_conditioning or bool(self._config.use_sft_prompt):
+            instruction = (
+                _DEFAULT_COVER_DIT_INSTRUCTION if use_planner_conditioning else _DEFAULT_DIT_INSTRUCTION
+            )
+            metas = _meta_string(
+                duration_s=duration_s,
+                bpm=effective_bpm,
+                keyscale=effective_keyscale,
+                timesignature=effective_timesignature,
+            )
+            caption_input = _sft_gen_prompt(instruction, effective_caption, metas)
         else:
             # Align with upstream inference: use raw prompt/tags without SFT wrapper.
             caption_input = prompt or "music"
 
         text_device = str(self._text_device or device)
         # Tokenize and encode caption on text runtime device.
-        text_ids, text_mask = self._tokenize_no_truncation(caption_input)
+        text_ids, text_mask = self._tokenize_text_input(caption_input, max_length=256)
         text_ids = text_ids.to(text_device)
         text_mask = text_mask.to(text_device)
 
         text_hidden = self._encode_text_hidden(text_ids, text_mask)
 
-        # Lyric conditioning:
-        # - if lyrics are provided, encode them
-        # - otherwise use a null lyric condition (mask=0) instead of synthetic text
-        if isinstance(lyrics, str) and lyrics.strip():
-            language = str(request.vocal_language or "unknown").strip() or "unknown"
-            lyrics_input = _format_lyrics(lyrics.strip(), language)
-            lyric_ids, lyric_mask = self._tokenize_no_truncation(lyrics_input)
-            lyric_ids = lyric_ids.to(text_device)
-            lyric_mask = lyric_mask.to(text_device)
-        else:
-            lyric_ids = torch.zeros((int(text_ids.shape[0]), 1), device=text_device, dtype=torch.long)
-            lyric_mask = torch.zeros((int(text_ids.shape[0]), 1), device=text_device, dtype=torch.bool)
+        planner_cover_strength = 1.0
+        non_cover_text_hidden = None
+        non_cover_text_mask = None
+        if use_planner_conditioning:
+            try:
+                planner_cover_strength = float(self._config.planner_cover_strength)
+            except Exception:
+                planner_cover_strength = 1.0
+            planner_cover_strength = max(0.0, min(1.0, planner_cover_strength))
+            if planner_cover_strength < 1.0:
+                if bool(self._config.use_sft_prompt):
+                    non_cover_caption_input = _sft_gen_prompt(_DEFAULT_DIT_INSTRUCTION, effective_caption, metas)
+                else:
+                    non_cover_caption_input = prompt or "music"
+                non_cover_ids, non_cover_mask = self._tokenize_text_input(non_cover_caption_input, max_length=256)
+                non_cover_ids = non_cover_ids.to(text_device)
+                non_cover_mask = non_cover_mask.to(text_device)
+                non_cover_text_hidden = self._encode_text_hidden(non_cover_ids, non_cover_mask)
+                non_cover_text_mask = non_cover_mask
+
+        # Upstream always formats the lyric branch, even when the user leaves lyrics empty.
+        lyrics_input = _format_lyrics(lyrics.strip(), effective_vocal_language) if isinstance(lyrics, str) else _format_lyrics("", effective_vocal_language)
+        lyric_ids, lyric_mask = self._tokenize_text_input(lyrics_input, max_length=2048)
+        lyric_ids = lyric_ids.to(text_device)
+        lyric_mask = lyric_mask.to(text_device)
         lyric_hidden = self._embed_lyrics(lyric_ids)
 
         # Keep all floating conditioning tensors aligned with the DiT model dtype.
@@ -1248,6 +2234,13 @@ class AceStepV15Backend:
                 text_hidden = text_hidden.to(device=device, dtype=model_dtype)
             else:
                 text_hidden = text_hidden.to(device)
+        if isinstance(non_cover_text_hidden, torch.Tensor):
+            if torch.is_floating_point(non_cover_text_hidden):
+                non_cover_text_hidden = non_cover_text_hidden.to(device=device, dtype=model_dtype)
+            else:
+                non_cover_text_hidden = non_cover_text_hidden.to(device)
+        if isinstance(non_cover_text_mask, torch.Tensor):
+            non_cover_text_mask = non_cover_text_mask.to(device=device)
         if isinstance(lyric_hidden, torch.Tensor):
             if torch.is_floating_point(lyric_hidden):
                 lyric_hidden = lyric_hidden.to(device=device, dtype=model_dtype)
@@ -1255,26 +2248,40 @@ class AceStepV15Backend:
                 lyric_hidden = lyric_hidden.to(device)
 
         # Reference timbre defaults to silence.
-        silence = self._silence_latent
-        if silence is None:
-            raise RuntimeError("silence_latent not loaded")
-        silence = silence.to(device=device, dtype=model_dtype)
+        silence = self._get_silence_latent_slice(latent_len, device=device, dtype=model_dtype)
         latent_channels = int(silence.shape[-1])
 
-        seed = request.seed
-        if not isinstance(seed, int) or seed < 0:
-            seed = random.randint(0, 2**32 - 1)
-
         refer_frames = int(self._config.refer_timbre_frames)
-        if str(self._config.reference_mode).strip().lower() == "silence":
-            refer_latents = silence[:, :refer_frames, :].expand(1, -1, -1).contiguous()  # [1, 750, 64]
+        reference_mode_value = "silence" if use_planner_conditioning else str(self._config.reference_mode).strip().lower()
+        if reference_mode_value == "silence":
+            refer_latents = self._get_silence_latent_slice(refer_frames, device=device, dtype=model_dtype)
+            refer_latents = refer_latents.expand(1, -1, -1).contiguous()  # [1, 750, 64]
             refer_latents = refer_latents.to(dtype=model_dtype)
             reference_mode = "silence"
         else:
             refer_latents = torch.zeros((1, refer_frames, latent_channels), device=device, dtype=model_dtype)
             reference_mode = "zeros"
         refer_order_mask = torch.tensor([0], device=device, dtype=torch.long)
-        if bool(self._config.use_random_src_latents):
+        planner_lm_hints = None
+        if use_planner_conditioning:
+            planner_lm_hints = self._decode_audio_code_ids_to_lm_hints(
+                audio_codes=planner_audio_codes,
+                device=device,
+                dtype=model_dtype,
+            )
+            if int(planner_lm_hints.shape[1]) < latent_len:
+                pad = self._get_silence_latent_slice(
+                    latent_len - int(planner_lm_hints.shape[1]),
+                    device=device,
+                    dtype=model_dtype,
+                )
+                planner_lm_hints = torch.cat([planner_lm_hints, pad], dim=1)
+            elif int(planner_lm_hints.shape[1]) > latent_len:
+                planner_lm_hints = planner_lm_hints[:, :latent_len, :]
+            planner_lm_hints = planner_lm_hints.contiguous()
+            src_latents = planner_lm_hints.clone()
+            src_latents_init = "audio_code_hints"
+        elif bool(self._config.use_random_src_latents):
             try:
                 gen = torch.Generator(device=device).manual_seed(int(seed))
             except Exception:
@@ -1287,36 +2294,50 @@ class AceStepV15Backend:
             )
             src_latents_init = "random"
         else:
-            src_latents = silence[:, :latent_len, :].expand(1, -1, -1).contiguous().to(dtype=model_dtype)
+            src_latents = silence.clone().expand(1, -1, -1).contiguous().to(dtype=model_dtype)
             src_latents_init = "silence"
 
         chunk_mask_mode = str(self._config.chunk_mask_mode).strip().lower()
-        if chunk_mask_mode == "ones":
+        if use_planner_conditioning and chunk_mask_mode == "zeros":
+            chunk_mask_mode = "auto"
+        if chunk_mask_mode == "auto":
+            chunk_masks = torch.full((1, latent_len, latent_channels), 2.0, device=device, dtype=model_dtype)
+        elif chunk_mask_mode == "ones":
             chunk_masks = torch.ones((1, latent_len, latent_channels), device=device, dtype=model_dtype)
         elif chunk_mask_mode == "zeros":
             chunk_masks = torch.zeros((1, latent_len, latent_channels), device=device, dtype=model_dtype)
         else:
-            raise ValueError(f"Unsupported chunk_mask_mode={self._config.chunk_mask_mode!r}. Use 'zeros' or 'ones'.")
-        is_covers = torch.zeros((1,), device=device, dtype=torch.long)
+            raise ValueError(
+                f"Unsupported chunk_mask_mode={self._config.chunk_mask_mode!r}. Use 'zeros', 'ones', or 'auto'."
+            )
+        is_covers = torch.ones((1,), device=device, dtype=torch.long) if use_planner_conditioning else torch.zeros((1,), device=device, dtype=torch.long)
 
         infer_method = str(self._config.infer_method)
 
         def _run_model_once(*, run_seed: int, run_infer_method: str) -> Any:
             return self._model.generate_audio(
                 text_hidden_states=text_hidden,
-                text_attention_mask=text_mask.to(device=device, dtype=text_hidden.dtype),
+                text_attention_mask=text_mask.to(device=device),
                 lyric_hidden_states=lyric_hidden,
-                lyric_attention_mask=lyric_mask.to(device=device, dtype=lyric_hidden.dtype),
+                lyric_attention_mask=lyric_mask.to(device=device),
                 refer_audio_acoustic_hidden_states_packed=refer_latents,
                 refer_audio_order_mask=refer_order_mask,
                 src_latents=src_latents,
                 chunk_masks=chunk_masks,
                 is_covers=is_covers,
-                silence_latent=silence[:, :latent_len, :],
+                silence_latent=silence,
                 seed=int(run_seed),
                 fix_nfe=int(self._config.fix_nfe),
                 infer_method=str(run_infer_method),
+                audio_cover_strength=float(planner_cover_strength if use_planner_conditioning else 1.0),
+                non_cover_text_hidden_states=non_cover_text_hidden,
+                non_cover_text_attention_mask=non_cover_text_mask,
+                precomputed_lm_hints_25Hz=planner_lm_hints,
                 shift=float(self._config.shift),
+                dcw_enabled=bool(self._config.dcw_enabled),
+                dcw_mode=str(self._config.dcw_mode),
+                dcw_scaler=float(self._config.dcw_scaler),
+                dcw_high_scaler=float(self._config.dcw_high_scaler),
             )
 
         # Generate latents with ACE-Step DiT.
@@ -1350,33 +2371,78 @@ class AceStepV15Backend:
             raise RuntimeError("ACE-Step generate_audio did not return target_latents")
 
         # Guard against non-finite latents (can happen on unstable dtype/scheduler combos).
-        has_non_finite_latents = False
-        try:
-            has_non_finite_latents = isinstance(pred_latents, torch.Tensor) and (not bool(torch.isfinite(pred_latents).all().item()))
-        except Exception:
-            has_non_finite_latents = False
-
-        if has_non_finite_latents:
-            alt_infer_method = "ode" if str(infer_method) != "ode" else "sde"
-            retry_seed = int(seed) + 1
-            print(
-                "WARNING #FALLBACK : ACE-Step returned non-finite latents; "
-                f"retrying with infer_method={alt_infer_method!r}, seed={retry_seed}.",
-                file=sys.stderr,
-            )
-            out = _run_model_once(run_seed=retry_seed, run_infer_method=alt_infer_method)
-            infer_method = alt_infer_method
-            seed = retry_seed
-            if isinstance(out, dict):
-                pred_latents = out.get("target_latents")
-            if pred_latents is None:
-                raise RuntimeError("ACE-Step retry did not return target_latents")
+        def _has_non_finite_latents(latents: Any) -> bool:
             try:
-                still_non_finite = isinstance(pred_latents, torch.Tensor) and (not bool(torch.isfinite(pred_latents).all().item()))
+                return isinstance(latents, torch.Tensor) and (not bool(torch.isfinite(latents).all().item()))
             except Exception:
-                still_non_finite = False
-            if still_non_finite:
-                raise RuntimeError("ACE-Step produced non-finite latents after retry; aborting.")
+                return False
+
+        if _has_non_finite_latents(pred_latents):
+            alt_infer_method = "ode" if str(infer_method) != "ode" else "sde"
+            retry_plan = [(int(seed) + 1, alt_infer_method)]
+            if seed_was_provided:
+                retry_plan.extend(
+                    [
+                        (int(seed) + 2, str(infer_method)),
+                        (int(seed) + 3, alt_infer_method),
+                    ]
+                )
+            else:
+                retry_plan.extend(
+                    [
+                        (123, "ode"),
+                        (124, "sde"),
+                        (321, "ode"),
+                        (322, "sde"),
+                    ]
+                )
+
+            attempts_seen = {(int(seed), str(infer_method))}
+            recovered = False
+            for retry_seed, retry_method in retry_plan:
+                retry_key = (int(retry_seed), str(retry_method))
+                if retry_key in attempts_seen:
+                    continue
+                attempts_seen.add(retry_key)
+                print(
+                    "WARNING #FALLBACK : ACE-Step returned non-finite latents; "
+                    f"retrying with infer_method={retry_method!r}, seed={retry_seed}.",
+                    file=sys.stderr,
+                )
+                out = _run_model_once(run_seed=int(retry_seed), run_infer_method=str(retry_method))
+                infer_method = str(retry_method)
+                seed = int(retry_seed)
+                if isinstance(out, dict):
+                    pred_latents = out.get("target_latents")
+                if pred_latents is None:
+                    raise RuntimeError("ACE-Step retry did not return target_latents")
+                if not _has_non_finite_latents(pred_latents):
+                    recovered = True
+                    break
+            if not recovered:
+                if device == "mps" and bool(self._config.auto_retry_cpu_on_mps_error):
+                    cpu_seed = int(request.seed) if seed_was_provided else 123
+                    print(
+                        "WARNING #FALLBACK : ACE-Step still produced non-finite latents on MPS after retries; "
+                        "retrying on CPU float32.",
+                        file=sys.stderr,
+                    )
+                    self._loaded = False
+                    self._model = None
+                    self._vae = None
+                    self._text_tokenizer = None
+                    self._text_encoder = None
+                    self._silence_latent = None
+                    self._config = replace(
+                        self._config,
+                        device="cpu",
+                        torch_dtype="float32",
+                        vae_torch_dtype="float32",
+                        infer_method="ode",
+                    )
+                    self._ensure_loaded()
+                    return self.generate_audio(replace(request, seed=cpu_seed))
+                raise RuntimeError("ACE-Step produced non-finite latents after retries; aborting.")
 
         # Decode to waveform via VAE.
         wav = self._decode_latents(pred_latents)
@@ -1388,6 +2454,88 @@ class AceStepV15Backend:
 
         # Encode WAV bytes.
         wav_bytes = _encode_wav_bytes(wav[0], sample_rate=48000)
+        stats = inspect_music_signal_bytes(wav_bytes)
+        harmonic_stats = None
+        modulation_stats = None
+        try:
+            harmonic_stats = inspect_harmonic_diversity_bytes(wav_bytes)
+        except Exception as exc:
+            if bool(self._config.quality_retry_enabled):
+                print(
+                    "WARNING #FALLBACK : ACE-Step harmonic-diversity inspection failed; "
+                    f"continuing with basic signal gate. (error={type(exc).__name__}: {exc})",
+                    file=sys.stderr,
+                )
+        try:
+            modulation_stats = inspect_spectrotemporal_modulation_bytes(wav_bytes)
+        except Exception as exc:
+            if bool(self._config.quality_retry_enabled):
+                print(
+                    "WARNING #FALLBACK : ACE-Step spectrotemporal inspection failed; "
+                    f"continuing with basic signal gate. (error={type(exc).__name__}: {exc})",
+                    file=sys.stderr,
+                )
+        quality_retry_count = 0
+        try:
+            quality_retry_count = int(extra.get("_acestep_quality_retry_count", 0) or 0)
+        except Exception:
+            quality_retry_count = 0
+        harmonic_collapsed = bool(
+            harmonic_stats is not None
+            and (
+                bool(harmonic_stats.is_probably_single_note_collapse)
+                or bool(harmonic_stats.is_probably_low_pitch_variety)
+            )
+        )
+        modulation_artifact = bool(
+            modulation_stats is not None
+            and bool(modulation_stats.is_probably_broadband_repetition_artifact)
+        )
+        quality_passed = (
+            bool(stats.is_probably_music_like)
+            and not bool(stats.is_probably_repetitive_noise)
+            and not harmonic_collapsed
+            and not modulation_artifact
+        )
+        if (
+            bool(self._config.quality_retry_enabled)
+            and not seed_was_provided
+            and not quality_passed
+            and quality_retry_count < int(self._config.quality_retry_max_attempts)
+        ):
+            attempted_raw = extra.get("_acestep_quality_retry_attempted_seeds")
+            attempted_seeds = []
+            if isinstance(attempted_raw, (list, tuple)):
+                for value in attempted_raw:
+                    try:
+                        attempted_seeds.append(int(value))
+                    except Exception:
+                        continue
+            if int(seed) not in attempted_seeds:
+                attempted_seeds.append(int(seed))
+            retry_seed = None
+            for candidate in self._config.quality_retry_fallback_seeds:
+                try:
+                    candidate_seed = int(candidate)
+                except Exception:
+                    continue
+                if candidate_seed not in attempted_seeds:
+                    retry_seed = candidate_seed
+                    break
+            if retry_seed is None:
+                retry_seed = int(seed) + quality_retry_count + 1
+                while retry_seed in attempted_seeds:
+                    retry_seed += 1
+            print(
+                "WARNING #FALLBACK : ACE-Step output failed the local music smoke test; "
+                f"retrying with seed={retry_seed}.",
+                file=sys.stderr,
+            )
+            retry_extra = dict(extra)
+            retry_extra["_acestep_quality_retry_count"] = quality_retry_count + 1
+            retry_extra["_acestep_quality_retry_attempted_seeds"] = attempted_seeds + [int(retry_seed)]
+            retry_extra["_acestep_user_seed_provided"] = bool(seed_was_provided)
+            return self.generate_audio(replace(request, seed=int(retry_seed), extra=retry_extra))
 
         meta: Dict[str, Any] = {
             "backend": self.backend_id,
@@ -1399,10 +2547,35 @@ class AceStepV15Backend:
             "latent_frames": int(latent_len),
             "seed": int(seed),
             "infer_method": str(infer_method),
+            "dcw_enabled": bool(self._config.dcw_enabled),
+            "dcw_mode": str(self._config.dcw_mode),
+            "dcw_scaler": float(self._config.dcw_scaler),
+            "dcw_high_scaler": float(self._config.dcw_high_scaler),
             "src_latents_init": str(src_latents_init),
-            "use_sft_prompt": bool(self._config.use_sft_prompt),
+            "use_sft_prompt": bool(use_planner_conditioning or self._config.use_sft_prompt),
             "chunk_mask_mode": str(chunk_mask_mode),
             "reference_mode": str(reference_mode),
+            "planner_mode": "lm_audio_codes" if use_planner_conditioning else "direct_text",
+            "planner_cover_strength": float(planner_cover_strength if use_planner_conditioning else 0.0),
+            "planner_error": planner_error,
+            "quality_retry_count": int(quality_retry_count),
+            "quality_gate_passed": bool(quality_passed),
+            "audio_stats": asdict(stats),
+            "harmonic_diversity_stats": asdict(harmonic_stats) if harmonic_stats is not None else None,
+            "spectrotemporal_modulation_stats": asdict(modulation_stats) if modulation_stats is not None else None,
+            "harmonic_collapse_detected": bool(harmonic_collapsed),
+            "spectrotemporal_artifact_detected": bool(modulation_artifact),
         }
+        if use_planner_conditioning and isinstance(planner, dict):
+            meta["planner_audio_code_count"] = int(planner.get("audio_code_count") or 0)
+            meta["planner_lm_model"] = str(planner.get("lm_model") or "")
+            meta["caption"] = effective_caption
+            meta["vocal_language"] = effective_vocal_language
+            if effective_bpm is not None:
+                meta["bpm"] = int(effective_bpm)
+            if effective_keyscale:
+                meta["keyscale"] = effective_keyscale
+            if effective_timesignature:
+                meta["timesignature"] = effective_timesignature
 
         return GeneratedAsset(data=bytes(wav_bytes), mime_type="audio/wav", metadata=meta)

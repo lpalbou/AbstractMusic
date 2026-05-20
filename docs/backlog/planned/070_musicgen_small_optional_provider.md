@@ -88,7 +88,6 @@ Add CLI/backend routing aliases (`musicgen`, `musicgen-small`) and registry test
 
 - `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
 - `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
-- `src/abstractmusic/backends/acestep_official.py`
 - `src/abstractmusic/audio_analysis.py`
 
 ## Expected Outcomes

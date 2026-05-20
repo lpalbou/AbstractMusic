@@ -21,8 +21,73 @@ def test_cli_allows_common_flags_after_subcommand():
     args = build_parser().parse_args(
         ["--backend", "acestep", "t2m", "sci fi music", "--duration", "10", "--out", "out.wav"]
     )
+    assert args.backend == "acestep-diffusers"
     assert args.cmd == "t2m"
     assert float(args.duration) == 10.0
+
+
+@pytest.mark.unit
+def test_cli_accepts_explicit_standalone_acestep_v15_backend():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["--backend", "acestep-v15", "t2m", "sci fi music", "--duration", "5", "--out", "out.wav"]
+    )
+    assert args.backend == "acestep-v15"
+    assert args.cmd == "t2m"
+
+
+@pytest.mark.unit
+def test_cli_rejects_removed_acestep_source_dir():
+    from abstractmusic.cli import build_parser
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(
+            [
+                "--backend",
+                "acestep",
+                "--acestep-source-dir",
+                "/tmp/ACE-Step-1.5",
+                "t2m",
+                "sci fi music",
+            ]
+        )
+
+
+@pytest.mark.unit
+def test_cli_accepts_vocal_language_hint():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--backend",
+            "acestep",
+            "t2m",
+            "sci fi music",
+            "--vocal-language",
+            "en",
+        ]
+    )
+
+    assert args.vocal_language == "en"
+
+
+@pytest.mark.unit
+def test_cli_accepts_quality_retry_control():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--backend",
+            "acestep",
+            "t2m",
+            "sci fi music",
+            "--quality-retries",
+            "3",
+        ]
+    )
+
+    assert args.quality_retries == 3
 
 
 @pytest.mark.unit
@@ -47,23 +112,23 @@ def test_cli_accepts_engine_alias_for_backend_flag():
 
 
 @pytest.mark.unit
-def test_cli_accepts_official_engine_alias():
+def test_cli_accepts_generic_ace_alias_as_standalone_backend():
     from abstractmusic.cli import build_parser
 
-    args = build_parser().parse_args(["repl", "--engine", "official", "--lm-backend", "mlx"])
+    args = build_parser().parse_args(["repl", "--engine", "ace"])
 
-    assert args.backend == "acestep-official"
-    assert args.lm_model_path == "acestep-5Hz-lm-1.7B"
-    assert args.lm_backend == "mlx"
-    assert args.shift == 3.0
-    assert args.infer_method == "ode"
-    assert args.lm_temperature == 0.85
-    assert args.audio_cover_strength == 1.0
+    assert args.backend == "acestep-diffusers"
 
-    args = build_parser().parse_args(["repl", "--engine", "official", "--bpm", "128", "--keyscale", "F# major", "--timesignature", "4"])
-    assert args.bpm == 128
-    assert args.keyscale == "F# major"
-    assert args.timesignature == "4"
+
+@pytest.mark.unit
+def test_cli_accepts_legacy_aliases_for_custom_acestep_backend():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(["repl", "--engine", "v15"])
+    assert args.backend == "acestep-v15"
+
+    args = build_parser().parse_args(["repl", "--engine", "legacy"])
+    assert args.backend == "acestep-v15"
 
 
 @pytest.mark.unit
@@ -80,16 +145,6 @@ def test_cli_accepts_musicgen_and_stable_audio_engines():
 
 
 @pytest.mark.unit
-def test_cli_accepts_verbose_flag_after_subcommand():
-    from abstractmusic.cli import build_parser
-
-    args = build_parser().parse_args(["repl", "--engine", "official", "--verbose"])
-
-    assert args.backend == "acestep-official"
-    assert args.verbose is True
-
-
-@pytest.mark.unit
 def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsys):
     from abstractmusic.cli import MusicREPL, build_parser
 
@@ -103,8 +158,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     repl.onecmd("/timesignature 4")
     repl.onecmd("/steps 16")
     repl.onecmd("/seed 42")
-    repl.onecmd("/lm acestep-5Hz-lm-0.6B")
-    repl.onecmd("/lm-backend mlx")
+    repl.onecmd("/lm-backend cpu")
     repl.onecmd("/verbose on")
     repl.onecmd("/lyrics [Instrumental]")
     repl.onecmd("/params")
@@ -116,8 +170,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert repl.args.timesignature == "4"
     assert repl.args.steps == 16
     assert repl.args.seed == 42
-    assert repl.args.lm_model_path == "acestep-5Hz-lm-0.6B"
-    assert repl.args.lm_backend == "mlx"
+    assert repl.args.lm_backend == "cpu"
     assert repl.args.verbose is True
     assert repl.args.lyrics == "[Instrumental]"
     assert repl._manager is None
@@ -170,21 +223,15 @@ def test_music_repl_normalizes_hyphenated_slash_commands(monkeypatch):
     repl.onecmd("/guidance-scale 4")
     repl.onecmd("/shift 3")
     repl.onecmd("/infer-method sde")
-    repl.onecmd("/sampler-mode heun")
     repl.onecmd("/lm-temperature 0.95")
     repl.onecmd("/lm-cfg-scale 2.5")
-    repl.onecmd("/audio-cover-strength 0.35")
-    repl.onecmd("/cover-noise-strength 0")
     repl.onecmd("/out-dir /tmp/abstractmusic-repl")
 
     assert repl.args.guidance_scale == 4.0
     assert repl.args.shift == 3.0
     assert repl.args.infer_method == "sde"
-    assert repl.args.sampler_mode == "heun"
     assert repl.args.lm_temperature == 0.95
     assert repl.args.lm_cfg_scale == 2.5
-    assert repl.args.audio_cover_strength == 0.35
-    assert repl.args.cover_noise_strength == 0.0
     assert str(repl.out_dir) == "/tmp/abstractmusic-repl"
     assert calls == []
 
@@ -206,7 +253,6 @@ def test_music_repl_request_parameters_do_not_reload_manager():
     repl.onecmd("/shift 3")
     repl.onecmd("/infer-method ode")
     repl.onecmd("/lm-temperature 0.85")
-    repl.onecmd("/audio-cover-strength 0.35")
 
     assert repl._manager_dirty is False
     repl.onecmd("/engine xl")

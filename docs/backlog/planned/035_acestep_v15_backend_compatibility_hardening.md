@@ -8,9 +8,9 @@
 
 ## Context
 
-The current custom ACE-Step v1.5 backend is the only implemented serious local music provider, but
-it is also the most fragile part of the repo. It vendors custom Transformers model code and applies
-runtime patches around several upstream behaviors.
+The standalone ACE-Step v1.5 backend is the required ACE-Step path for AbstractMusic. It vendors
+custom Transformers model code and applies runtime patches around several compatibility behaviors,
+so it needs stricter version policy and real quality validation.
 
 ## Current code reality
 
@@ -40,9 +40,9 @@ harden it with exact dependency policy, version-gated patches, and real validati
 
 ## Why
 
-The project cannot be called working if its default provider depends on unbounded upstream internals.
-At the same time, the smaller ACE-Step v1.5 path may remain useful on consumer hardware even after
-the XL Diffusers provider lands.
+The project cannot call the standalone backend supported if it depends on unbounded internals and
+fails real music-quality validation. At the same time, the smaller ACE-Step v1.5 path may remain
+useful on consumer hardware even after the XL Diffusers provider lands.
 
 ## Requirements
 
@@ -114,8 +114,8 @@ environment.
 2026-05-15: A 3-second Apple MPS smoke produced a valid WAV after the
 `ACE-Step/Ace-Step1.5` snapshot finished downloading, but user listening feedback and
 harmonic/envelope analysis rejected it as fast rotor-like audio rather than music. The custom path
-is therefore not validated and should probably be retired or rewritten around the official 5Hz LM
-semantic-code phase before broad default claims.
+is therefore not validated and should either be fixed in package-owned code or marked quality
+limited before broad default claims.
 
 ## Guidance for the implementing agent
 

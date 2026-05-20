@@ -131,3 +131,20 @@ def test_acestep_diffusers_rejects_negative_prompt_and_guidance():
         backend.generate_audio(AudioGenerationRequest(prompt="x", negative_prompt="noise"))
     with pytest.raises(ValueError, match="guidance"):
         backend.generate_audio(AudioGenerationRequest(prompt="x", guidance_scale=3.0))
+
+
+@pytest.mark.unit
+def test_acestep_diffusers_accepts_batched_pipeline_audio_shape():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.backends.acestep_diffusers import _encode_wav_bytes
+
+    audio = np.zeros((1, 2, 48000), dtype=np.float32)
+    audio[0, 0, :] = 0.1
+    audio[0, 1, :] = -0.1
+    data = _encode_wav_bytes(audio, sample_rate=48000)
+
+    with wave.open(__import__("io").BytesIO(data), "rb") as wf:
+        assert wf.getframerate() == 48000
+        assert wf.getnchannels() == 2
+        assert wf.getnframes() == 48000

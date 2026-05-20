@@ -8,13 +8,18 @@ silently change the configured model.
 
 ## Current Reviewed Models
 
-- `ACE-Step/Ace-Step1.5`: recommended through `acestep-official`, MIT, text-to-music with lyrics.
-  This path wraps the upstream ACE-Step handler and 5Hz LM planner, and defaults to the bundled
-  `acestep-5Hz-lm-1.7B` LM. Short instrumental generations remain quality-risky: recent 10-second
-  smokes produced harmonic audio but were still highly repetitive. The default turbo DiT does not
-  use CFG, so `guidance_scale` is treated as unsupported unless a non-turbo DiT is explicitly
-  configured. The older packaged custom backend remains non-recommended because a 3-second Apple
-  MPS run produced valid PCM but sounded and measured like fast rotor-like audio.
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the default `acestep` /
+  `acestep-diffusers` backend, MIT, text-to-music with lyrics. This path uses Diffusers
+  AceStepPipeline, Hugging Face checkpoint files, and package-owned orchestration without an
+  external ACE-Step source tree or package. On Apple MPS, AbstractMusic falls back to CPU float32
+  when the pipeline returns non-finite audio.
+- `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics. This
+  path uses vendored ACE-Step model code and package-owned orchestration without an external
+  ACE-Step source tree or package, but it is quality-limited after repeated-loop validation
+  failures.
+  The experimental 5Hz audio-code planner is opt-in because coarse code hints can imprint
+  repetitive artifacts. The default turbo DiT does not use CFG, so
+  `guidance_scale` is treated as unsupported unless a non-turbo DiT is explicitly configured.
 - `facebook/musicgen-small`: 300M text-to-music model through Transformers, CC BY-NC 4.0. This is
   configured as the optional `musicgen` backend and remains the best small validation candidate
   because its inference path is straightforward and model family is established, but the weights
@@ -23,9 +28,6 @@ silently change the configured model.
   License, short 11-second clips. It is configured as the optional `stable-audio` backend and is
   interesting for Apple/Arm-friendly short clips and sound effects, but not a strong default music
   candidate. Hugging Face access approval is required before weights can be downloaded.
-- `ACE-Step/acestep-v15-xl-turbo-diffusers`: preferred next ACE-Step XL provider candidate, MIT,
-  Diffusers `AceStepPipeline`, text-to-music with lyrics; adapter implemented, real model
-  validation pending.
 - `ACE-Step/acestep-v15-xl-turbo`: raw XL Turbo DiT checkpoint, MIT, heavy advanced variant.
 - `ACE-Step/acestep-v15-xl-sft`: raw XL SFT checkpoint, MIT, heavy quality variant with guidance.
 - `HeartMuLa/HeartMuLa-oss-3B-happy-new-year`: Apache-2.0, lyrics and tag conditioned music
@@ -44,5 +46,5 @@ Prefer official 8-bit artifacts when available. If none are available, prefer of
 artifacts. The reviewed models currently do not expose official 8-bit checkpoints in their Hugging
 Face metadata.
 
-On Apple hardware, use an official MLX path when one exists for a provider; otherwise prefer
-PyTorch MPS. CPU is a fallback path, not the default acceleration strategy.
+On Apple hardware, use PyTorch MPS for standalone providers when supported and keep CPU fallback
+explicit in logs/metadata. CPU is a fallback path, not the default acceleration strategy.

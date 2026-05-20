@@ -7,10 +7,10 @@ smoke tests are planned and must be opt-in because checkpoints are large.
 
 ## Which model should be the default?
 
-ACE-Step v1.5 through `acestep-official` is the current practical default because it is
-music-focused, MIT-licensed, and uses the upstream 5Hz LM planner. The ACE-Step XL Turbo Diffusers
-checkpoint remains a preferred next provider candidate because it uses a cleaner Diffusers pipeline
-layout.
+ACE-Step Diffusers XL Turbo through `acestep` / `acestep-diffusers` is the default because it is
+the package-owned path that passed the current 30-second reference-floor smoke. The explicit
+`acestep-v15` backend uses vendored model code but remains quality-limited after repeated-loop
+validation failures.
 
 ## Can HeartMuLa generate music?
 
