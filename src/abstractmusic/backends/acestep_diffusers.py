@@ -15,7 +15,7 @@ import wave
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
-from ..audio_analysis import inspect_wav_bytes
+from ..audio_analysis import inspect_energy_continuity_bytes, inspect_wav_bytes
 from ..errors import OptionalDependencyMissingError
 from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
@@ -400,6 +400,7 @@ class AceStepDiffusersBackend:
             else:
                 raise
         stats = inspect_wav_bytes(wav_bytes)
+        continuity_stats = inspect_energy_continuity_bytes(wav_bytes)
 
         metadata: Dict[str, Any] = {
             "backend": self.backend_id,
@@ -422,6 +423,16 @@ class AceStepDiffusersBackend:
                 "clipped_ratio": float(stats.clipped_ratio),
                 "zero_crossing_rate": float(stats.zero_crossing_rate),
                 "probably_noise_or_invalid": bool(stats.is_probably_noise_or_invalid),
+            },
+            "energy_continuity_stats": {
+                "low_energy_floor": float(continuity_stats.low_energy_floor),
+                "low_energy_fraction": float(continuity_stats.low_energy_fraction),
+                "max_low_energy_s": float(continuity_stats.max_low_energy_s),
+                "max_low_energy_start_s": float(continuity_stats.max_low_energy_start_s),
+                "leading_low_energy_s": float(continuity_stats.leading_low_energy_s),
+                "trailing_low_energy_s": float(continuity_stats.trailing_low_energy_s),
+                "has_long_low_energy_gap": bool(continuity_stats.has_long_low_energy_gap),
+                "has_long_trailing_fade": bool(continuity_stats.has_long_trailing_fade),
             },
         }
         if request.seed is not None:

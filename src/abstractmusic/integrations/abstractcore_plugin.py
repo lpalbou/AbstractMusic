@@ -69,6 +69,7 @@ class _AbstractMusicCapabilityBase:
     def __init__(self, owner: Any) -> None:
         self._owner = owner
         self._backend = None
+        self._text_planner = None
 
     def _get_backend(self):
         if self._backend is not None:
@@ -91,10 +92,47 @@ class _AbstractMusicCapabilityBase:
 
         raise NotImplementedError
 
+    def _get_text_planner(self):
+        if self._text_planner is not None:
+            return self._text_planner
+        try:
+            cfg = getattr(self._owner, "config", None)
+            if isinstance(cfg, dict):
+                inst = cfg.get("music_text_planner")
+                if inst is None:
+                    inst = cfg.get("music_text_planner_instance")
+                if inst is not None:
+                    self._text_planner = inst
+                    return self._text_planner
+                factory = cfg.get("music_text_planner_factory")
+                if callable(factory):
+                    try:
+                        self._text_planner = factory(self._owner)
+                        return self._text_planner
+                    except Exception:
+                        if self._get_text_planner_mode().strip().lower() == "required":
+                            raise
+                        return None
+        except Exception:
+            return None
+        return None
+
+    def _get_text_planner_mode(self) -> str:
+        return (
+            _owner_cfg(self._owner, "music_text_planner_mode")
+            or _env("ABSTRACTMUSIC_TEXT_PLANNER")
+            or "auto"
+        )
+
     def _make_manager(self) -> MusicManager:
         # Keep capability execution predictable: always generate locally in-process
         # and let the capability layer handle ArtifactStore persistence (run_id/tags/metadata).
-        return MusicManager(backend=self._get_backend(), store=None)
+        return MusicManager(
+            backend=self._get_backend(),
+            store=None,
+            text_planner=self._get_text_planner(),
+            text_planner_mode=self._get_text_planner_mode(),
+        )
 
     def t2m(
         self,
@@ -115,6 +153,11 @@ class _AbstractMusicCapabilityBase:
             )
 
         mm = self._make_manager()
+        planner_mode = self._get_text_planner_mode()
+        if "planning" not in kwargs and "plan_text" not in kwargs:
+            kwargs["planning"] = str(planner_mode or "").strip().lower() not in {"0", "false", "no", "none", "off"}
+        if "text_planner_mode" not in kwargs:
+            kwargs["text_planner_mode"] = planner_mode
         out = mm.generate_audio(str(prompt or ""), lyrics=lyrics, **kwargs)
 
         if isinstance(out, dict):
@@ -305,7 +348,8 @@ def register(registry: Any) -> None:
         description="AbstractMusic ACE-Step Diffusers XL Turbo path (in-process, package-owned adapter).",
         config_hint="Optional: set music_model_id to a HF repo id "
         "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). Local filesystem paths are rejected. "
-        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu', music_torch_dtype='auto'/'float32'/'bfloat16', "
+        "and music_text_planner / music_text_planner_factory for host-provided text planning.",
     )
 
     registry.register_music_backend(
@@ -315,7 +359,8 @@ def register(registry: Any) -> None:
         description="AbstractMusic standalone ACE-Step v1.5 path (explicit quality-limited backend).",
         config_hint="Optional: set music_model_id to a HF repo id (default: 'ACE-Step/Ace-Step1.5'). "
         "Local filesystem paths are rejected. "
-        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'bfloat16'.",
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu', music_torch_dtype='auto'/'float32'/'bfloat16', "
+        "and music_text_planner / music_text_planner_factory for host-provided text planning.",
     )
 
     registry.register_music_backend(
@@ -325,5 +370,6 @@ def register(registry: Any) -> None:
         description="AbstractMusic local generation via Diffusers audio pipeline.",
         config_hint="Set music_model_id (or ABSTRACTMUSIC_MODEL_ID) to a Diffusers audio model id "
         "(checkpoint license varies). Local filesystem paths are rejected. "
-        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu'.",
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and "
+        "music_text_planner / music_text_planner_factory for host-provided text planning.",
     )

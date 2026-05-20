@@ -15,6 +15,19 @@ HeartMuLa-specific, or Diffusers-specific. Common concepts such as prompt, lyric
 format, seed, sample rate, and vocal language can be first-class request fields. Specialized
 options should be explicit and documented.
 
+## Text Planning Boundary
+
+Text planning is a separate layer from backend generation. `MusicPlanningRequest` captures the
+raw prompt, lyrics, duration, metadata hints, and model/backend context. A planner returns a
+`MusicPromptPlan`; `compile_music_prompt_plan(...)` renders that plan into the deterministic
+prompt/lyrics/metadata contract required by the selected backend.
+
+The built-in planner is dependency-free and low-confidence by design. AbstractMusic must not import
+AbstractCore or any LLM runtime for planning. Hosts can inject a planner through `MusicManager` or
+through AbstractCore plugin config (`music_text_planner`, `music_text_planner_instance`, or
+`music_text_planner_factory`). This keeps the intelligence layer swappable while preserving a stable
+backend request contract.
+
 ## Dependency Boundary
 
 Heavy runtime stacks must be imported lazily. The base package stays focused on contracts, manager

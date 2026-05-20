@@ -125,6 +125,21 @@ For generations of 45 seconds or more, `--structure-prompt` is enabled by defaul
 intro/build/bridge/climax/outro section map to the caption. Use `--no-structure-prompt` or
 `/structure-prompt off` to pass long prompts through unchanged.
 
+## Text Planning Boundary
+
+AbstractMusic separates text planning from audio synthesis. The built-in planner is dependency-free:
+it can enrich short captions, infer simple BPM/key/time hints, preserve explicit lyrics, and produce
+template lyrics when `--auto-lyrics` is requested. It is intentionally a fallback, not a full language
+model.
+
+Host applications can inject a smarter planner without making AbstractMusic depend on that host:
+`MusicManager(..., text_planner=planner, text_planner_mode="auto")` accepts an object with
+`create_plan(request)`, an object with `plan_music_text(request_dict)`, or a callable that accepts
+`request_dict`. In AbstractCore plugin mode the same hook is exposed through owner config keys
+`music_text_planner`, `music_text_planner_instance`, or `music_text_planner_factory`. The compiled
+plan is then applied deterministically per backend, and planner provenance is stored in output
+metadata.
+
 ## Licensing note
 
 - The default backend example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.

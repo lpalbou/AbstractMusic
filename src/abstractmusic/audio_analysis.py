@@ -53,6 +53,36 @@ class WavAudioStats:
 
 
 @dataclass(frozen=True)
+class EnergyContinuityStats:
+    """Frame-energy continuity metrics for detecting long quiet gaps."""
+
+    wav: WavAudioStats
+    frame_s: float
+    hop_s: float
+    low_energy_floor: float
+    low_energy_fraction: float
+    max_low_energy_s: float
+    max_low_energy_start_s: float
+    leading_low_energy_s: float
+    trailing_low_energy_s: float
+    rms_p10: float
+    rms_p50: float
+    rms_p75: float
+
+    @property
+    def has_long_low_energy_gap(self) -> bool:
+        return self.max_low_energy_s >= 6.0
+
+    @property
+    def has_long_trailing_fade(self) -> bool:
+        return self.trailing_low_energy_s >= 6.0
+
+    @property
+    def is_probably_continuous(self) -> bool:
+        return not self.has_long_low_energy_gap
+
+
+@dataclass(frozen=True)
 class MusicSignalStats:
     """Objective music smoke metrics for a WAV file.
 
@@ -306,6 +336,22 @@ def inspect_wav_stream(stream: BinaryIO) -> WavAudioStats:
     )
 
 
+def inspect_energy_continuity_file(path: Union[str, Path]) -> EnergyContinuityStats:
+    """Inspect a WAV path for long low-energy gaps or pre-ending fades."""
+
+    expanded = Path(path).expanduser()
+    data = expanded.read_bytes()
+    return inspect_energy_continuity_bytes(data)
+
+
+def inspect_energy_continuity_bytes(data: bytes) -> EnergyContinuityStats:
+    """Inspect WAV bytes for long low-energy gaps or pre-ending fades."""
+
+    wav_stats = inspect_wav_bytes(data)
+    samples = _wav_bytes_to_mono_float_array(data)
+    return _inspect_energy_continuity_samples(samples, wav_stats)
+
+
 def inspect_music_signal_file(path: Union[str, Path]) -> MusicSignalStats:
     """Inspect a WAV path with harmonic and envelope smoke metrics.
 
@@ -389,6 +435,99 @@ def inspect_spectrotemporal_modulation_bytes(data: bytes) -> SpectroTemporalModu
     wav_stats = inspect_wav_bytes(data)
     samples = _wav_bytes_to_mono_float_array(data)
     return _inspect_spectrotemporal_modulation_samples(samples, wav_stats)
+
+
+def _inspect_energy_continuity_samples(samples: Any, wav_stats: WavAudioStats) -> EnergyContinuityStats:
+    np = _lazy_import_numpy()
+    frame_s = 0.25
+    hop_s = 0.10
+    if samples.size == 0 or wav_stats.sample_rate_hz <= 0:
+        return EnergyContinuityStats(
+            wav=wav_stats,
+            frame_s=frame_s,
+            hop_s=hop_s,
+            low_energy_floor=0.0,
+            low_energy_fraction=1.0,
+            max_low_energy_s=float(wav_stats.duration_s),
+            max_low_energy_start_s=0.0,
+            leading_low_energy_s=float(wav_stats.duration_s),
+            trailing_low_energy_s=float(wav_stats.duration_s),
+            rms_p10=0.0,
+            rms_p50=0.0,
+            rms_p75=0.0,
+        )
+
+    sr = int(wav_stats.sample_rate_hz)
+    samples = np.asarray(samples, dtype=np.float64)
+    frame_size = max(1, int(round(frame_s * float(sr))))
+    hop = max(1, int(round(hop_s * float(sr))))
+    if samples.size < frame_size:
+        frame_rms = np.asarray([float(np.sqrt(np.mean(np.square(samples))))], dtype=np.float64)
+    else:
+        values = []
+        for start in range(0, int(samples.size) - frame_size + 1, hop):
+            frame = samples[start : start + frame_size]
+            values.append(float(np.sqrt(np.mean(np.square(frame)))))
+        frame_rms = np.asarray(values, dtype=np.float64)
+
+    if frame_rms.size == 0:
+        frame_rms = np.asarray([0.0], dtype=np.float64)
+
+    rms_p10, rms_p50, rms_p75 = [float(v) for v in np.percentile(frame_rms, [10, 50, 75])]
+    low_energy_floor = max(rms_p75 * 0.08, float(wav_stats.rms) * 0.06, 1e-5)
+    low = frame_rms < float(low_energy_floor)
+    runs: list[tuple[int, int]] = []
+    run_start = None
+    run_len = 0
+    for idx, is_low in enumerate(low.tolist()):
+        if bool(is_low):
+            if run_start is None:
+                run_start = idx
+            run_len += 1
+            continue
+        if run_start is not None:
+            runs.append((int(run_start), int(run_len)))
+        run_start = None
+        run_len = 0
+    if run_start is not None:
+        runs.append((int(run_start), int(run_len)))
+
+    def _run_duration(start_idx: int, count: int, *, is_trailing: bool = False) -> float:
+        start_s = float(start_idx) * hop_s
+        if is_trailing:
+            return max(0.0, float(wav_stats.duration_s) - start_s)
+        return frame_s + max(0, int(count) - 1) * hop_s
+
+    max_start = 0.0
+    max_duration = 0.0
+    for start_idx, count in runs:
+        is_trailing = start_idx + count >= int(low.size)
+        duration = _run_duration(start_idx, count, is_trailing=is_trailing)
+        if duration > max_duration:
+            max_duration = duration
+            max_start = float(start_idx) * hop_s
+
+    leading = 0.0
+    if runs and runs[0][0] == 0:
+        leading = _run_duration(runs[0][0], runs[0][1], is_trailing=(runs[0][0] + runs[0][1] >= int(low.size)))
+    trailing = 0.0
+    if runs and runs[-1][0] + runs[-1][1] >= int(low.size):
+        trailing = _run_duration(runs[-1][0], runs[-1][1], is_trailing=True)
+
+    return EnergyContinuityStats(
+        wav=wav_stats,
+        frame_s=frame_s,
+        hop_s=hop_s,
+        low_energy_floor=float(low_energy_floor),
+        low_energy_fraction=float(np.mean(low)) if low.size else 0.0,
+        max_low_energy_s=float(max_duration),
+        max_low_energy_start_s=float(max_start),
+        leading_low_energy_s=float(leading),
+        trailing_low_energy_s=float(trailing),
+        rms_p10=rms_p10,
+        rms_p50=rms_p50,
+        rms_p75=rms_p75,
+    )
 
 
 def _pcm_to_float_samples(raw: bytes, *, sample_width: int) -> list[float]:

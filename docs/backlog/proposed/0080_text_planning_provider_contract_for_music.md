@@ -2,8 +2,9 @@
 
 ## Metadata
 - Created: 2026-05-20
-- Status: Proposed
+- Status: Proposed follow-up
 - Completed: N/A
+- Baseline implemented: 2026-05-20
 
 ## ADR status
 - Governing ADRs: None
@@ -24,14 +25,19 @@ base package import-light and usable as a standalone local music library.
 - `src/abstractmusic/prompt_planner.py` contains dependency-free heuristics for
   `create_prompt_plan(...)`, `enhance_caption(...)`, and `generate_lyrics(...)`. The lyric function
   is template-based and should be treated as a fallback, not a quality target.
-- `src/abstractmusic/cli.py` exposes `--enhance-prompt`, `--auto-lyrics`, `--instrumental`, and
-  `--print-plan`, then passes the resolved prompt/lyrics/BPM/key/time hints through the existing
-  `MusicManager` request path.
-- `src/abstractmusic/music_manager.py` and `src/abstractmusic/types.py` have first-class lyrics and
-  backend-specific extra fields, but no text-planner provider contract.
+- `src/abstractmusic/prompt_planner.py` now also defines the baseline provider contract:
+  `MusicPlanningRequest`, `MusicPromptPlan`, `MusicPlanningProvider`,
+  `create_music_prompt_plan(...)`, and `compile_music_prompt_plan(...)`.
+- `src/abstractmusic/cli.py` exposes `--enhance-prompt`, `--auto-lyrics`, `--instrumental`,
+  `--text-planner`, and `--print-plan`, then passes resolved prompt/lyrics/BPM/key/time hints
+  through the existing `MusicManager` request path.
+- `src/abstractmusic/music_manager.py` has `text_planner` and `text_planner_mode` injection.
+  `text_planner_mode=auto` uses an injected planner when present and otherwise uses deterministic
+  fallback; `required` raises on provider failure; `off` preserves raw user text.
 - `src/abstractmusic/integrations/abstractcore_plugin.py` registers music backends as an
   AbstractCore capability plugin without importing AbstractCore directly. It reads owner/config
-  values and supports backend injection, but has no text-planning injection point.
+  values and supports backend injection plus `music_text_planner`,
+  `music_text_planner_instance`, and `music_text_planner_factory`.
 - `../abstractvoice/abstractvoice/examples/llm_provider.py` demonstrates a tiny
   OpenAI-compatible local LLM client for Ollama/LM Studio. AbstractVoice docs describe it as an
   example/demo surface; production agent/server orchestration should remain with AbstractCore.
@@ -58,10 +64,11 @@ The opportunity is to define a small, package-owned text-planning contract that 
 - model-specific planners such as ACE-Step 5 Hz LM, but only behind explicit backend semantics.
 
 ## Proposed direction
-Investigate a `MusicTextPlanner` or `MusicPlanningProvider` contract owned by AbstractMusic. It
-should accept a structured request containing prompt, optional lyrics, instrumental flag, duration,
-language, model/backend hints, and desired outputs. It should return a structured
-`MusicPromptPlan`-like object with:
+The baseline `MusicPlanningProvider` contract is implemented. Remaining proposed work is to prove
+whether smarter planners genuinely improve output quality and then add optional adapters only where
+the evidence is strong. The existing contract accepts a structured request containing prompt,
+optional lyrics, instrumental flag, duration, language, model/backend hints, and desired outputs.
+It returns a structured `MusicPromptPlan` object with:
 
 - effective caption;
 - optional lyrics;
@@ -71,19 +78,19 @@ language, model/backend hints, and desired outputs. It should return a structure
 - provenance such as `planner_backend`, `generated_fields`, confidence, warnings, and raw text
   when useful.
 
-Evaluate three integration modes before implementation:
+Evaluate the remaining integration modes before adding any provider:
 
-1. Deterministic fallback: keep the current dependency-free planner, but make it visibly
-   low-confidence and avoid presenting template lyrics as "good" generated lyrics.
+1. Listening validation: compare the deterministic fallback, hand-written rich captions, and a
+   host-injected planner on accepted prompts before claiming quality improvement.
 2. Lightweight local LLM adapter: add an optional OpenAI-compatible text planner using only
    stdlib HTTP or a small optional extra, with presets for Ollama and LM Studio. This should be
    explicit and disabled by default.
-3. AbstractCore injection: let the plugin accept an owner/config callable or planner object, such
-   as `music_text_planner`, without importing AbstractCore. AbstractCore can later provide a real
-   adapter that uses its configured text model.
+3. AbstractCore integration: let AbstractCore supply a real adapter through the existing
+   `music_text_planner` / `music_text_planner_factory` hook, without AbstractMusic importing
+   AbstractCore.
 
-The likely long-term shape is fallback plus injection first, then optional OpenAI-compatible local
-provider if the contract proves stable.
+The likely long-term shape remains fallback plus injection first, then an optional
+OpenAI-compatible local provider if the contract proves stable.
 
 ## Why it might matter
 Advanced music generation is not only audio synthesis. Better captions, lyrics, and metadata can

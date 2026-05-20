@@ -1,6 +1,6 @@
 import pytest
 
-from abstractmusic.types import GeneratedAsset
+from abstractmusic.types import GeneratedAsset, MusicBackendCapabilities
 from abstractmusic.errors import AbstractMusicError, CapabilityNotSupportedError
 
 
@@ -9,6 +9,25 @@ class _StubBackend:
 
     def generate_audio(self, request):
         return GeneratedAsset(data=b"wav-bytes", mime_type="audio/wav", metadata={"k": "v"})
+
+
+class _CaptureBackend:
+    backend_id = "capture"
+
+    def __init__(self):
+        self.last_request = None
+
+    def get_capabilities(self):
+        return MusicBackendCapabilities(
+            supported_tasks=("text_to_music",),
+            output_formats=("wav",),
+            supports_lyrics=True,
+            model_id="fake-model",
+        )
+
+    def generate_audio(self, request):
+        self.last_request = request
+        return GeneratedAsset(data=b"planned-wav", mime_type="audio/wav", metadata={"backend": "capture"})
 
 
 class _DummyOwner:
@@ -141,3 +160,82 @@ def test_capability_rejects_local_model_path():
     cap = factory(owner)
     with pytest.raises(AbstractMusicError, match="local filesystem path"):
         cap.t2m("hello", format="wav")
+
+
+@pytest.mark.unit
+def test_capability_uses_injected_text_planner_without_abstractcore_import():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    backend = _CaptureBackend()
+    calls = []
+
+    def planner(request):
+        calls.append(dict(request))
+        return {
+            "prompt": "planned fantasy cue with brass theme",
+            "lyrics": "[Instrumental]",
+            "vocal_language": "en",
+            "bpm": 96,
+            "keyscale": "D minor",
+            "timesignature": "4",
+            "planner_backend": "host-text-planner",
+            "generated_fields": ["prompt", "lyrics", "bpm"],
+        }
+
+    owner = _DummyOwner({"music_backend_instance": backend, "music_text_planner": planner})
+    cap = factory(owner)
+    out = cap.t2m("heroic fantasy", duration_s=30)
+
+    assert out == b"planned-wav"
+    assert calls and calls[0]["prompt"] == "heroic fantasy"
+    assert backend.last_request.prompt == "planned fantasy cue with brass theme"
+    assert backend.last_request.lyrics == "[Instrumental]"
+    assert backend.last_request.vocal_language == "en"
+    assert backend.last_request.extra["bpm"] == 96
+    assert backend.last_request.extra["keyscale"] == "D minor"
+
+
+@pytest.mark.unit
+def test_capability_text_planner_mode_off_does_not_call_injected_planner():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    backend = _CaptureBackend()
+    calls = []
+
+    def planner(request):
+        calls.append(dict(request))
+        return {"prompt": "should not be used"}
+
+    owner = _DummyOwner(
+        {
+            "music_backend_instance": backend,
+            "music_text_planner": planner,
+            "music_text_planner_mode": "off",
+        }
+    )
+    cap = factory(owner)
+    out = cap.t2m("raw user prompt", duration_s=30)
+
+    assert out == b"planned-wav"
+    assert calls == []
+    assert backend.last_request.prompt == "raw user prompt"
+
+
+@pytest.mark.unit
+def test_capability_text_planner_required_mode_needs_provider():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    owner = _DummyOwner({"music_backend_instance": _CaptureBackend(), "music_text_planner_mode": "required"})
+    cap = factory(owner)
+
+    with pytest.raises(TypeError, match="required"):
+        cap.t2m("raw user prompt", duration_s=30)

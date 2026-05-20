@@ -98,6 +98,41 @@ def test_music_signal_rejects_fast_repetitive_low_harmonic_audio():
     assert not stats.is_probably_music_like
 
 
+@pytest.mark.unit
+def test_energy_continuity_flags_long_trailing_pause():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_energy_continuity_bytes
+
+    sr = 48000
+    t = np.arange(0, sr * 10, dtype=np.float64) / float(sr)
+    tone = 0.25 * np.sin(2 * np.pi * 220.0 * t)
+    tone[int(sr * 3.0) :] = 0.0
+    stats = inspect_energy_continuity_bytes(_wav_bytes(tone, sample_rate=sr))
+
+    assert stats.has_long_low_energy_gap
+    assert stats.has_long_trailing_fade
+    assert stats.trailing_low_energy_s >= 6.5
+    assert not stats.is_probably_continuous
+
+
+@pytest.mark.unit
+def test_energy_continuity_accepts_continuous_music_bed():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_energy_continuity_bytes
+
+    sr = 48000
+    t = np.arange(0, sr * 10, dtype=np.float64) / float(sr)
+    bed = 0.18 * np.sin(2 * np.pi * 110.0 * t) + 0.08 * np.sin(2 * np.pi * 330.0 * t)
+    bed *= 0.65 + 0.20 * np.sin(2 * np.pi * 2.0 * t)
+    stats = inspect_energy_continuity_bytes(_wav_bytes(bed, sample_rate=sr))
+
+    assert stats.max_low_energy_s < 1.0
+    assert stats.trailing_low_energy_s < 1.0
+    assert stats.is_probably_continuous
+
+
 def _harmonic_progression(np, sample_rate=48000, duration_s=8.0):
     t = np.arange(0, int(sample_rate * duration_s), dtype=np.float64) / float(sample_rate)
     roots = np.asarray([196.0, 246.94, 293.66, 369.99, 329.63, 261.63, 220.0, 392.0], dtype=np.float64)

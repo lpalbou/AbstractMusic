@@ -120,6 +120,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
         assert wf.getnframes() == 48000
     assert asset.metadata["backend"] == "abstractmusic:acestep-diffusers"
     assert asset.metadata["audio_stats"]["probably_noise_or_invalid"] is False
+    assert asset.metadata["energy_continuity_stats"]["has_long_low_energy_gap"] is False
 
 
 @pytest.mark.unit

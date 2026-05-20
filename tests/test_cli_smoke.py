@@ -101,6 +101,8 @@ def test_cli_accepts_prompt_enhancement_and_lyrics_flags():
             "--enhance-prompt",
             "--no-structure-prompt",
             "--auto-lyrics",
+            "--text-planner",
+            "auto",
             "--print-plan",
         ]
     )
@@ -108,6 +110,7 @@ def test_cli_accepts_prompt_enhancement_and_lyrics_flags():
     assert args.enhance_prompt is True
     assert args.structure_prompt is False
     assert args.auto_lyrics is True
+    assert args.text_planner == "auto"
     assert args.instrumental is False
     assert args.print_plan is True
 
@@ -206,6 +209,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     repl.onecmd("/auto-lyrics on")
     repl.onecmd("/instrumental on")
     repl.onecmd("/print-plan on")
+    repl.onecmd("/text-planner off")
     repl.onecmd("/params")
 
     assert repl.args.backend == "acestep-diffusers"
@@ -223,6 +227,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert repl.args.auto_lyrics is True
     assert repl.args.instrumental is True
     assert repl.args.print_plan is True
+    assert repl.args.text_planner == "off"
     assert repl._manager is None
     out = capsys.readouterr().out
     assert "engine: acestep-diffusers" in out
@@ -234,6 +239,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert "auto-lyrics: on" in out
     assert "instrumental: on" in out
     assert "print-plan: on" in out
+    assert "text_planner: off" in out
 
 
 @pytest.mark.unit

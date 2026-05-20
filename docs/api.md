@@ -23,6 +23,31 @@ return an artifact reference.
 
 `t2m(...)` is a convenience method that returns WAV bytes directly.
 
+## Text Planning
+
+AbstractMusic exposes a small planner boundary so host applications can improve prompt rewriting
+without changing backend implementations:
+
+```python
+def planner(request_dict):
+    return {
+        "prompt": "cinematic orchestral intro with a brass theme and clear build",
+        "lyrics": "[Instrumental]",
+        "bpm": 96,
+        "keyscale": "D minor",
+        "planner_backend": "host-llm",
+        "generated_fields": ["prompt", "lyrics", "bpm", "keyscale"],
+    }
+
+music = MusicManager(backend=backend, text_planner=planner, text_planner_mode="auto")
+asset = music.generate_audio("heroic fantasy", duration_s=30, planning=True)
+```
+
+Planner providers can be callables accepting `request_dict`, objects with
+`plan_music_text(request_dict)`, or objects with `create_plan(MusicPlanningRequest)`. `auto` uses
+the provider when present and falls back to the deterministic local planner. `required` raises on
+provider failure. `off` preserves raw user text.
+
 ## Request Fields
 
 Core fields:

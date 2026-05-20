@@ -46,12 +46,16 @@ abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav -
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
 abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
+abstractmusic --backend acestep t2m "raw prompt only" --text-planner off --out out.wav --duration 30
 ```
 
 Use `--verbose` when you need backend logs and progress bars. By default the CLI keeps
 ACE-Step startup/generation logs quiet and prints the output path.
 For generations of 45 seconds or more, `--structure-prompt` is enabled by default and adds a compact
 section map to the caption. Use `--no-structure-prompt` to pass long prompts through unchanged.
+`--text-planner deterministic` uses the dependency-free fallback planner. `--text-planner off`
+preserves raw user text and explicit metadata. Library and AbstractCore plugin callers can use
+`text_planner_mode="auto"` with an injected planner to replace only the intelligence layer.
 
 ## Interactive REPL
 
@@ -76,6 +80,7 @@ Inside the REPL:
 /lyrics [Instrumental]
 /enhance-prompt on
 /structure-prompt on
+/text-planner deterministic
 /auto-lyrics on
 /prompt bright melodic synth pop loop with steady drums
 /run

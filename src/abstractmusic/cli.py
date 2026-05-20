@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .huggingface import require_hf_repo_id
-from .prompt_planner import create_prompt_plan
+from .prompt_planner import MusicPlanningRequest, compile_music_prompt_plan, create_music_prompt_plan
 
 if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "YES", "TRUE"}:
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
@@ -269,6 +269,11 @@ def build_parser() -> argparse.ArgumentParser:
             action=argparse.BooleanOptionalAction,
             default=_env_flag("ABSTRACTMUSIC_STRUCTURE_PROMPT", True) if use_defaults else default_suppress,
             help="Automatically add a compact section plan for long generations (>=45s). Default: on.",
+        )
+        parser.add_argument(
+            "--text-planner",
+            default=_env("ABSTRACTMUSIC_TEXT_PLANNER", "deterministic") if use_defaults else default_suppress,
+            help="Text planning provider mode: deterministic|auto|required|off. Default: deterministic.",
         )
         parser.add_argument(
             "--auto-lyrics",
@@ -585,8 +590,8 @@ def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Opti
 
     backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     duration = float(getattr(args, "duration", 10.0))
-    plan = create_prompt_plan(
-        str(prompt or ""),
+    plan_request = MusicPlanningRequest(
+        prompt=str(prompt or ""),
         lyrics=lyrics,
         vocal_language=getattr(args, "vocal_language", None),
         duration_s=duration,
@@ -597,13 +602,18 @@ def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Opti
         enhance_prompt=bool(getattr(args, "enhance_prompt", False)),
         structure_prompt=bool(getattr(args, "structure_prompt", True)),
         auto_lyrics=bool(getattr(args, "auto_lyrics", False)),
+        backend=backend_kind,
+        model_id=getattr(args, "model_id", None),
     )
-
-    request_prompt = plan.prompt
-    request_lyrics = plan.lyrics
-    if not _native_lyrics_supported(backend_kind) and isinstance(request_lyrics, str) and request_lyrics.strip():
-        request_prompt = f"{request_prompt}\n\nLyrics:\n{request_lyrics.strip()}"
-        request_lyrics = None
+    plan = create_music_prompt_plan(
+        plan_request,
+        mode=str(getattr(args, "text_planner", "deterministic") or "deterministic"),
+    )
+    compiled = compile_music_prompt_plan(
+        plan,
+        backend=backend_kind,
+        native_lyrics_supported=_native_lyrics_supported(backend_kind),
+    )
 
     if bool(getattr(args, "print_plan", False)):
         print("Effective music plan:", file=sys.stderr)
@@ -613,18 +623,11 @@ def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Opti
         print(f"  keyscale: {plan.keyscale or 'auto'}", file=sys.stderr)
         print(f"  timesignature: {plan.timesignature or 'auto'}", file=sys.stderr)
         print(f"  structured_prompt: {'yes' if plan.structured_prompt else 'no'}", file=sys.stderr)
+        print(f"  planner_backend: {plan.planner_backend}", file=sys.stderr)
+        print(f"  generated_fields: {', '.join(plan.generated_fields) if plan.generated_fields else 'none'}", file=sys.stderr)
+        print(f"  warnings: {', '.join(compiled.metadata.get('planner_warnings') or ()) or 'none'}", file=sys.stderr)
 
-    metadata = {
-        "bpm": plan.bpm,
-        "keyscale": plan.keyscale,
-        "timesignature": plan.timesignature,
-        "vocal_language": plan.vocal_language,
-        "enhanced_prompt": plan.enhanced_prompt,
-        "structured_prompt": plan.structured_prompt,
-        "generated_lyrics": plan.generated_lyrics,
-        "instrumental": plan.instrumental,
-    }
-    return request_prompt, request_lyrics, metadata
+    return compiled.prompt, compiled.lyrics, dict(compiled.metadata)
 
 
 def _cmd_t2m(args: argparse.Namespace) -> int:
@@ -643,6 +646,7 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
         bpm=plan_meta["bpm"],
         keyscale=plan_meta["keyscale"],
         timesignature=plan_meta["timesignature"],
+        metadata=plan_meta,
     )
     out_path = Path(str(args.out)).expanduser()
     _write_bytes(out_path, wav)
@@ -819,6 +823,7 @@ class MusicREPL(cmd.Cmd):
             bpm=plan_meta["bpm"],
             keyscale=plan_meta["keyscale"],
             timesignature=plan_meta["timesignature"],
+            metadata=plan_meta,
         )
         out_path = self._next_output_path()
         _write_bytes(out_path, wav)
@@ -858,6 +863,7 @@ class MusicREPL(cmd.Cmd):
         print("  /vocal-language <code|clear>")
         print("  /enhance-prompt [on|off] Expand short prompts into richer captions")
         print("  /structure-prompt [on|off] Add section plans for long generations")
+        print("  /text-planner [deterministic|auto|required|off]")
         print("  /auto-lyrics [on|off]    Generate simple local lyrics from the prompt")
         print("  /instrumental [on|off]   Use the ACE-Step [Instrumental] lyrics marker")
         print("  /print-plan [on|off]     Print effective caption, lyrics, and metadata")
@@ -1000,6 +1006,17 @@ class MusicREPL(cmd.Cmd):
     def do_structure_prompt(self, arg: str) -> None:
         self._set_bool_flag("structure_prompt", arg, "structure-prompt")
 
+    def do_text_planner(self, arg: str) -> None:
+        value = str(arg or "").strip().lower()
+        if not value:
+            print(str(getattr(self.args, "text_planner", "deterministic") or "deterministic"))
+            return
+        if value not in {"deterministic", "fallback", "local", "auto", "provider", "required", "off", "none", "raw"}:
+            print("Usage: /text-planner [deterministic|auto|required|off]")
+            return
+        setattr(self.args, "text_planner", value)
+        print(f"text-planner: {value}")
+
     def do_auto_lyrics(self, arg: str) -> None:
         self._set_bool_flag("auto_lyrics", arg, "auto-lyrics")
 
@@ -1108,6 +1125,7 @@ class MusicREPL(cmd.Cmd):
             ("vocal_language", getattr(self.args, "vocal_language", None) or "unknown"),
             ("enhance_prompt", "on" if bool(getattr(self.args, "enhance_prompt", False)) else "off"),
             ("structure_prompt", "on" if bool(getattr(self.args, "structure_prompt", True)) else "off"),
+            ("text_planner", getattr(self.args, "text_planner", "deterministic") or "deterministic"),
             ("auto_lyrics", "on" if bool(getattr(self.args, "auto_lyrics", False)) else "off"),
             ("instrumental", "on" if bool(getattr(self.args, "instrumental", False)) else "off"),
             ("print_plan", "on" if bool(getattr(self.args, "print_plan", False)) else "off"),
