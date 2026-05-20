@@ -236,7 +236,7 @@ jobs:
         with:
           name: release-notes
           path: .
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.build.outputs.tag }}
           name: AbstractMusic ${{ needs.build.outputs.tag }}
