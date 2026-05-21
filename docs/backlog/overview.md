@@ -17,7 +17,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 
 - Planned: 8
 - Proposed: 2
-- Completed: 7
+- Completed: 8
 - Deprecated: 3
 - Recurrent: 2
 
@@ -67,6 +67,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
 | 2026-05-21 | `completed/0084_music_capability_residency_contract.md` | Exposed Core-friendly load/list/unload residency for local music engines without confusing remote discovery with local loaded state. |
 | 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
+| 2026-05-21 | `completed/0086_repl_ux_and_default_model_routing_hardening.md` | Made the REPL discoverable and robust (engine/model routing, aligned model listing, downloads toggle, and data-driven defaults). |
 
 ## Proposed work
 

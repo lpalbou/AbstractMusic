@@ -38,6 +38,39 @@ SUPPORTED_BACKENDS = (
     "stable-audio-3",
 )
 DEFAULT_BACKEND = "acemusic"
+
+_DEFAULT_MODEL_ID_CACHE: dict[str, str | None] | None = None
+
+
+def _default_model_id_for_backend(backend_kind: str) -> str | None:
+    """Return the packaged default model id for a backend kind."""
+
+    global _DEFAULT_MODEL_ID_CACHE
+    if _DEFAULT_MODEL_ID_CACHE is None:
+        mapping: dict[str, str | None] = {kind: None for kind in SUPPORTED_BACKENDS}
+        try:
+            from .model_capabilities import MusicModelCapabilitiesRegistry
+
+            reg = MusicModelCapabilitiesRegistry()
+            models = list(reg.list_models())
+        except Exception:
+            models = []
+
+        for kind in SUPPORTED_BACKENDS:
+            if kind == "diffusers":
+                mapping[kind] = None
+                continue
+            candidates = [m for m in models if kind in set(str(k) for k in m.backend_kinds)]
+            chosen = next((m for m in candidates if getattr(m, "default_for_backend", False)), None)
+            if chosen is None:
+                chosen = next((m for m in candidates if bool(getattr(m, "recommended", False))), None)
+            if chosen is None and candidates:
+                chosen = candidates[0]
+            mapping[kind] = str(chosen.id) if chosen is not None else None
+
+        _DEFAULT_MODEL_ID_CACHE = mapping
+
+    return (_DEFAULT_MODEL_ID_CACHE or {}).get(str(backend_kind), None)
 BACKEND_ALIASES = {
     "remote": "acemusic",
     "api": "acemusic",
@@ -97,6 +130,18 @@ def _env_flag(key: str, default: bool = False) -> bool:
     if value is None:
         return bool(default)
     return value.lower() in {"1", "on", "true", "yes"}
+
+
+def _downloads_enabled_default() -> bool:
+    """Return True when local HF-backed engines should be allowed to download weights."""
+
+    offline = (
+        _env_flag("ABSTRACTMUSIC_LOCAL_FILES_ONLY")
+        or _env_flag("HF_HUB_OFFLINE")
+        or _env_flag("TRANSFORMERS_OFFLINE")
+        or _env_flag("DIFFUSERS_OFFLINE")
+    )
+    return not offline
 
 
 def _timestamp_id() -> str:
@@ -288,6 +333,14 @@ def build_parser() -> argparse.ArgumentParser:
             "--revision",
             default=_env("ABSTRACTMUSIC_REVISION") if use_defaults else default_suppress,
             help="Optional Hugging Face revision (commit/tag).",
+        )
+        parser.add_argument(
+            "--download",
+            action=argparse.BooleanOptionalAction,
+            default=_downloads_enabled_default() if use_defaults else default_suppress,
+            help="Allow downloading Hugging Face model files when missing. "
+            "Default: enabled unless $HF_HUB_OFFLINE / $TRANSFORMERS_OFFLINE / $DIFFUSERS_OFFLINE "
+            "or $ABSTRACTMUSIC_LOCAL_FILES_ONLY is set. Use --no-download to require cache only.",
         )
         parser.add_argument(
             "--device",
@@ -525,7 +578,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     t2m.add_argument("--out", default="out.wav", help="Output audio path")
 
-    repl = sub.add_parser("repl", help="Interactive modular prompt→audio loop")
+    repl = sub.add_parser("repl", help="Interactive modular prompt→audio loop", aliases=["cli"])
     _add_common_args(repl, use_defaults=False)
     repl.add_argument("--out-dir", default=".", help="Directory to write WAV files into")
     repl.add_argument("--prefix", default="music", help="Filename prefix for outputs")
@@ -592,7 +645,10 @@ def _make_manager_from_args(args: argparse.Namespace):
         from .backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
 
         if not model_id:
-            model_id = "ACE-Step/acestep-v15-xl-turbo-diffusers"
+            model_id = _default_model_id_for_backend("acestep-diffusers") or ""
+        if not model_id:
+            raise SystemExit("No default model is configured for engine=acestep-diffusers; pass --model-id explicitly.")
+        allow_download = bool(getattr(args, "download", _downloads_enabled_default()))
         cfg = AceStepDiffusersBackendConfig(
             model_id=model_id,
             device=str(getattr(args, "device", "auto") or "auto"),
@@ -601,6 +657,7 @@ def _make_manager_from_args(args: argparse.Namespace):
             duration_s=float(getattr(args, "duration", 10.0)),
             guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else None,
             shift=float(getattr(args, "shift")) if getattr(args, "shift", None) is not None else 3.0,
+            local_files_only=not allow_download,
         )
         backend = AceStepDiffusersBackend(config=cfg)
         return MusicManager(backend=backend)
@@ -626,7 +683,9 @@ def _make_manager_from_args(args: argparse.Namespace):
         from .backends.musicgen import MusicGenBackend, MusicGenBackendConfig
 
         if not model_id:
-            model_id = "facebook/musicgen-small"
+            model_id = _default_model_id_for_backend("musicgen") or ""
+        if not model_id:
+            raise SystemExit("No default model is configured for engine=musicgen; pass --model-id explicitly.")
         cfg = MusicGenBackendConfig(
             model_id=model_id,
             device=str(getattr(args, "device", "auto") or "auto"),
@@ -641,7 +700,9 @@ def _make_manager_from_args(args: argparse.Namespace):
         from .backends.stable_audio import StableAudioBackend, StableAudioBackendConfig
 
         if not model_id:
-            model_id = "stabilityai/stable-audio-open-small"
+            model_id = _default_model_id_for_backend("stable-audio") or ""
+        if not model_id:
+            raise SystemExit("No default model is configured for engine=stable-audio; pass --model-id explicitly.")
         cfg = StableAudioBackendConfig(
             model_id=model_id,
             device=str(getattr(args, "device", "auto") or "auto"),
@@ -656,7 +717,9 @@ def _make_manager_from_args(args: argparse.Namespace):
         from .backends.stable_audio_3 import StableAudio3Backend, StableAudio3BackendConfig
 
         if not model_id:
-            model_id = "stabilityai/stable-audio-3-small-music"
+            model_id = _default_model_id_for_backend("stable-audio-3") or ""
+        if not model_id:
+            raise SystemExit("No default model is configured for engine=stable-audio-3; pass --model-id explicitly.")
         cfg = StableAudio3BackendConfig(
             model_id=model_id,
             device=str(getattr(args, "device", "auto") or "auto"),
@@ -672,7 +735,10 @@ def _make_manager_from_args(args: argparse.Namespace):
         from .backends import AceStepV15Backend, AceStepV15BackendConfig
 
         if not model_id:
-            model_id = "ACE-Step/Ace-Step1.5"
+            model_id = _default_model_id_for_backend("acestep-v15") or ""
+        if not model_id:
+            raise SystemExit("No default model is configured for engine=acestep-v15; pass --model-id explicitly.")
+        allow_download = bool(getattr(args, "download", _downloads_enabled_default()))
         cfg_kwargs = {
             "repo_id": model_id,
             "device": str(getattr(args, "device", "auto") or "auto"),
@@ -680,6 +746,7 @@ def _make_manager_from_args(args: argparse.Namespace):
             "vae_torch_dtype": str(getattr(args, "dtype", "auto") or "auto"),
             "default_duration_s": float(getattr(args, "duration", 10.0)),
             "fix_nfe": int(getattr(args, "steps", None) or 8),
+            "local_files_only": not allow_download,
             "shift": _arg_float(args, "shift", 3.0),
             "infer_method": _arg_str(args, "infer_method", "ode"),
             "dcw_enabled": bool(getattr(args, "dcw_enabled", True)),
@@ -832,12 +899,61 @@ class MusicREPL(cmd.Cmd):
         self.current_prompt = str(getattr(self.args, "prompt", "") or "").strip()
         self._manager = None
         self._manager_dirty = True
+        self._registry = None
         self._render_count = 0
         self._init_readline()
         self.intro = (
             "AbstractMusic REPL\n"
-            "Type a prompt to generate music, or use /prompt then /run. Commands: /help, /params, /engine, /models, /exit"
+            "Type a prompt to generate music, or use /prompt then /run. Commands: /help, /status, /engines, /models, /exit"
         )
+
+    def _get_registry(self):
+        if self._registry is None:
+            from .model_capabilities import MusicModelCapabilitiesRegistry
+
+            self._registry = MusicModelCapabilitiesRegistry()
+        return self._registry
+
+    def _spec_for_model_id(self, model_id: str):
+        reg = self._get_registry()
+        try:
+            return reg.get(str(model_id))
+        except Exception:
+            return None
+
+    def _engine_for_model_id(self, model_id: str) -> str | None:
+        spec = self._spec_for_model_id(model_id)
+        if spec is None:
+            return None
+        for kind in spec.backend_kinds:
+            if str(kind) in set(SUPPORTED_BACKENDS):
+                return str(kind)
+        return None
+
+    def _effective_engine(self) -> str:
+        return str(getattr(self.args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
+
+    def _default_model_for_engine(self, engine: str) -> str | None:
+        return _default_model_id_for_backend(str(engine))
+
+    def _effective_model_id(self) -> str | None:
+        explicit = getattr(self.args, "model_id", None)
+        if explicit:
+            return str(explicit)
+        return self._default_model_for_engine(self._effective_engine())
+
+    def _ensure_engine_model_consistency(self, *, reason: str) -> None:
+        model_id = getattr(self.args, "model_id", None)
+        if not model_id:
+            return
+        expected_engine = self._engine_for_model_id(str(model_id))
+        current_engine = self._effective_engine()
+        if expected_engine and expected_engine != current_engine:
+            setattr(self.args, "model_id", None)
+            self._mark_dirty()
+            print(
+                f"model: default (cleared; {model_id} belongs to engine {expected_engine}, current engine {current_engine}; {reason})"
+            )
 
     def _init_readline(self) -> None:
         try:
@@ -966,14 +1082,21 @@ class MusicREPL(cmd.Cmd):
             print("Usage: /prompt <text>, then /run; or /generate <prompt>")
             return
         mm = self._get_manager()
-        backend_kind = str(getattr(self.args, "backend", "acestep") or "acestep").strip().lower()
+        backend_kind = self._effective_engine()
+        effective_model = self._effective_model_id()
+        if backend_kind == "diffusers" and not effective_model:
+            print("ERROR: engine=diffusers requires /model <huggingface_repo_id>", file=sys.stderr)
+            return
         request_prompt, request_lyrics, plan_meta = _resolve_generation_text(
             self.args,
             prompt,
             getattr(self.args, "lyrics", None),
         )
         duration = float(getattr(self.args, "duration", 10.0))
-        print(f"Generating with {backend_kind} ({duration:g}s)...")
+        model_suffix = ""
+        if getattr(self.args, "model_id", None) is None and self._default_model_for_engine(backend_kind):
+            model_suffix = " [default]"
+        print(f"Generating with {backend_kind} (model={effective_model or 'unset'}{model_suffix}, {duration:g}s)...")
         wav = mm.t2m(
             request_prompt,
             duration_s=duration,
@@ -1013,43 +1136,32 @@ class MusicREPL(cmd.Cmd):
     def do_help(self, arg: str = "") -> None:  # noqa: D401
         """Show REPL commands."""
         _ = arg
-        print("Commands:")
-        print("  /prompt [text|clear]     Show, set, or clear the session prompt")
-        print("  /run                     Generate from the current prompt")
-        print("  /generate [prompt]       Generate from a prompt; bare prompt also works")
-        print("  /engine [name]           Show or set engine: acemusic, elevenlabs, acestep, xl, diffusers, musicgen, stable-audio, stable-audio-3")
-        print("  /model [id|clear]        Show or set model id")
-        print("  /format [wav|mp3|flac]   Show or set output format")
-        print("  /composition-mode [auto|prompt|plan]")
-        print("  /lm-backend [auto|cuda|xpu|mps|cpu]")
-        print("  /device [auto|mps|cuda|cpu]")
-        print("  /dtype [auto|float16|bfloat16|float32]")
-        print("  /duration <seconds>      Set generation duration")
-        print("  /bpm <n|auto>            Set target BPM metadata")
-        print("  /keyscale <text|clear>   Set target key/scale metadata")
-        print("  /timesignature <n|clear> Set target time signature metadata")
-        print("  /vocal-language <code|clear>")
-        print("  /enhance-prompt [on|off] Expand short prompts into richer captions")
-        print("  /structure-prompt [on|off] Add section plans for long generations")
-        print("  /text-planner [deterministic|auto|required|off]")
-        print("  /auto-lyrics [on|off]    Generate simple local lyrics from the prompt")
-        print("  /instrumental [on|off]   Use the ACE-Step [Instrumental] lyrics marker")
-        print("  /print-plan [on|off]     Print effective caption, lyrics, and metadata")
-        print("  /steps <n|auto>          Set inference steps")
-        print("  /seed <n|auto>           Set seed")
-        print("  /guidance <value|auto>   Set guidance scale")
-        print("  /shift <value>           Set ACE-Step timestep shift")
-        print("  /infer-method <ode|sde>  Set ACE-Step inference method")
-        print("  /lm-temperature <value>  Set standalone ACE-Step planner temperature")
-        print("  /lm-cfg-scale <value>    Set standalone ACE-Step planner CFG scale")
-        print("  /quality-retries <n>     Set ACE-Step harmonic quality retry count")
-        print("  /verbose [on|off]        Show or hide backend logs")
-        print("  /lyrics <text|clear>     Set session lyrics, e.g. [Instrumental]")
-        print("  /negative <text|clear>   Set negative prompt")
-        print("  /out <dir>               Set output directory")
-        print("  /prefix <name>           Set output filename prefix")
-        print("  /models                  List packaged model registry")
-        print("  /params                  Show current settings")
+        print("Core commands:")
+        print("  /status                  Show current engine + effective model + key params")
+        print("  /engines                 List engines and their default models")
+        print("  /engine <name>           Select engine (acemusic, elevenlabs, acestep, diffusers, musicgen, stable-audio, stable-audio-3)")
+        print("  /models                  List known models (grouped by engine)")
+        print("  /model <id|default>      Select model id (auto-switches engine when known)")
+        print("")
+        print("Generation:")
+        print("  /prompt <text|clear>     Set or clear the session prompt")
+        print("  /run                     Generate from current prompt")
+        print("  /generate <prompt>       Generate from a prompt (bare prompt also works)")
+        print("")
+        print("Common params:")
+        print("  /download <on|off>       Allow/disallow downloading missing HF model files")
+        print("  /duration <seconds>      Duration in seconds")
+        print("  /steps <n|auto>          Inference steps")
+        print("  /seed <n|auto>           Seed")
+        print("  /format <wav|mp3|flac>   Output format (remote backends may support more)")
+        print("  /device <auto|mps|cuda|cpu>")
+        print("  /dtype <auto|float16|bfloat16|float32>")
+        print("  /verbose <on|off>        Show/hide backend logs")
+        print("")
+        print("Session:")
+        print("  /params                  Show all settings")
+        print("  /out <dir>               Output directory")
+        print("  /prefix <name>           Output filename prefix")
         print("  /exit                    Quit")
 
     def do_exit(self, arg: str = "") -> bool:
@@ -1088,14 +1200,85 @@ class MusicREPL(cmd.Cmd):
         self.current_prompt = value
         print(f"prompt: {self.current_prompt}")
 
+    def do_status(self, arg: str = "") -> None:
+        _ = arg
+        engine = self._effective_engine()
+        explicit_model = getattr(self.args, "model_id", None)
+        effective_model = self._effective_model_id()
+        if explicit_model:
+            print(f"engine: {engine}")
+            print(f"model: {explicit_model}")
+        else:
+            print(f"engine: {engine}")
+            print(f"model: default ({effective_model or 'unset'})")
+
+        spec = self._spec_for_model_id(str(effective_model)) if effective_model else None
+        if spec is not None:
+            rec = "recommended" if spec.recommended else "candidate"
+            max_dur = f"{spec.max_duration_s:g}s" if spec.max_duration_s is not None else "n/a"
+            locality = "remote" if bool(spec.raw.get("remote", False)) else "local"
+            print(f"provider: {spec.provider} ({rec}, {locality}, status={spec.status}, max_duration={max_dur})")
+
+        print(f"duration: {float(getattr(self.args, 'duration', 10.0)):g}s")
+        print(f"steps: {getattr(self.args, 'steps', None) or 'auto'}")
+        print(f"seed: {getattr(self.args, 'seed', None) if getattr(self.args, 'seed', None) is not None else 'auto'}")
+        print(f"format: {str(getattr(self.args, 'format', 'wav') or 'wav')}")
+        print(f"download: {'on' if bool(getattr(self.args, 'download', _downloads_enabled_default())) else 'off'}")
+
+    def do_engines(self, arg: str = "") -> None:
+        _ = arg
+        rows: list[dict[str, str]] = []
+        current_engine = self._effective_engine()
+        for engine in SUPPORTED_BACKENDS:
+            default_model = self._default_model_for_engine(engine) or ""
+            spec = self._spec_for_model_id(default_model) if default_model else None
+            provider = spec.provider if spec is not None else ("Hugging Face" if engine == "diffusers" else "")
+            max_dur = f"{spec.max_duration_s:g}s" if (spec is not None and spec.max_duration_s is not None) else ""
+            locality = "remote" if (spec is not None and bool(spec.raw.get("remote", False))) else ("local" if spec is not None else "")
+            marker = "*" if engine == current_engine else " "
+            rows.append(
+                {
+                    "sel": marker,
+                    "engine": engine,
+                    "default_model": default_model or ("(requires /model)" if engine == "diffusers" else ""),
+                    "provider": provider,
+                    "locality": locality,
+                    "max_dur": max_dur,
+                }
+            )
+
+        w_engine = max(len(r["engine"]) for r in rows) if rows else 6
+        w_model = max(len(r["default_model"]) for r in rows) if rows else 12
+        w_provider = max(len(r["provider"]) for r in rows) if rows else 8
+        w_locality = max(len(r["locality"]) for r in rows) if rows else 6
+        w_max = max(len(r["max_dur"]) for r in rows) if rows else 3
+
+        print(
+            f"  {'ENGINE'.ljust(w_engine)}  {'DEFAULT MODEL'.ljust(w_model)}  {'PROVIDER'.ljust(w_provider)}  {'WHERE'.ljust(w_locality)}  {'MAX'.ljust(w_max)}"
+        )
+        for r in rows:
+            print(
+                f"{r['sel']} {r['engine'].ljust(w_engine)}  {r['default_model'].ljust(w_model)}  {r['provider'].ljust(w_provider)}  {r['locality'].ljust(w_locality)}  {r['max_dur'].ljust(w_max)}"
+            )
+
     def do_engine(self, arg: str) -> None:
         value = str(arg or "").strip()
         if not value:
-            print(str(getattr(self.args, "backend", "acestep")))
+            engine = self._effective_engine()
+            explicit_model = getattr(self.args, "model_id", None)
+            effective_model = self._effective_model_id() or "unset"
+            suffix = f" (model={effective_model})"
+            if explicit_model is None and self._default_model_for_engine(engine):
+                suffix += " [default]"
+            print(f"{engine}{suffix}")
             return
         backend = _normalize_backend(value)
         setattr(self.args, "backend", backend)
         self._mark_dirty()
+        self._ensure_engine_model_consistency(reason="engine explicitly changed")
+        if backend == "diffusers" and not getattr(self.args, "model_id", None):
+            print("engine: diffusers (requires /model <huggingface_repo_id>)")
+            return
         print(f"engine: {backend}")
 
     def do_backend(self, arg: str) -> None:
@@ -1111,11 +1294,24 @@ class MusicREPL(cmd.Cmd):
     def do_model(self, arg: str) -> None:
         value = str(arg or "").strip()
         if not value:
-            print(str(getattr(self.args, "model_id", None) or "default"))
+            engine = self._effective_engine()
+            explicit = getattr(self.args, "model_id", None)
+            default_model = self._default_model_for_engine(engine)
+            if explicit:
+                print(str(explicit))
+                return
+            if default_model:
+                print(f"default ({default_model})")
+                return
+            print("unset (engine requires /model)")
             return
         if value.lower() in {"clear", "none", "default"}:
             setattr(self.args, "model_id", None)
-            print("model: default")
+            effective = self._effective_model_id()
+            if effective:
+                print(f"model: default ({effective})")
+            else:
+                print("model: default")
         else:
             try:
                 value = require_hf_repo_id(value, field_name="model")
@@ -1123,8 +1319,42 @@ class MusicREPL(cmd.Cmd):
                 print(f"ERROR: {e}", file=sys.stderr)
                 return
             setattr(self.args, "model_id", value)
+            selected_engine = self._engine_for_model_id(value)
+            if selected_engine and selected_engine != self._effective_engine():
+                setattr(self.args, "backend", selected_engine)
+                print(f"engine: {selected_engine} (auto)")
+
+            spec = self._spec_for_model_id(value)
+            if spec is not None and spec.max_duration_s is not None:
+                try:
+                    current_duration = float(getattr(self.args, "duration", 10.0))
+                except Exception:
+                    current_duration = 10.0
+                max_duration = float(spec.max_duration_s)
+                if current_duration > max_duration > 0:
+                    setattr(self.args, "duration", max_duration)
+                    print(f"duration: {max_duration:g} (auto; max for {spec.id})")
+
             print(f"model: {value}")
         self._mark_dirty()
+
+    def complete_model(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        _ = line, begidx, endidx
+        prefix = str(text or "")
+        out: list[str] = []
+        for sentinel in ["default", "clear"]:
+            if sentinel.startswith(prefix):
+                out.append(sentinel)
+        try:
+            reg = self._get_registry()
+            wanted = prefix.lower()
+            for spec in reg.list_models():
+                model_id = str(spec.id)
+                if not wanted or model_id.lower().startswith(wanted):
+                    out.append(model_id)
+        except Exception:
+            return out
+        return sorted(set(out))
 
     def do_format(self, arg: str) -> None:
         value = str(arg or "").strip().lower()
@@ -1174,6 +1404,24 @@ class MusicREPL(cmd.Cmd):
         setattr(self.args, "dtype", value)
         self._mark_dirty()
         print(f"dtype: {value}")
+
+    def do_download(self, arg: str = "") -> None:
+        value = str(arg or "").strip().lower()
+        current = bool(getattr(self.args, "download", _downloads_enabled_default()))
+        if not value:
+            print("download: on" if current else "download: off")
+            return
+        if value in {"1", "on", "true", "yes"}:
+            setattr(self.args, "download", True)
+            self._mark_dirty()
+            print("download: on")
+            return
+        if value in {"0", "off", "false", "no"}:
+            setattr(self.args, "download", False)
+            self._mark_dirty()
+            print("download: off")
+            return
+        print("Usage: /download [on|off]")
 
     def do_duration(self, arg: str) -> None:
         self._set_optional_float("duration", arg, "duration", clear_to_none=False)
@@ -1309,6 +1557,7 @@ class MusicREPL(cmd.Cmd):
             ("format", getattr(self.args, "format", "wav")),
             ("device", getattr(self.args, "device", "auto")),
             ("dtype", getattr(self.args, "dtype", "auto")),
+            ("download", "on" if bool(getattr(self.args, "download", _downloads_enabled_default())) else "off"),
             ("duration", getattr(self.args, "duration", None)),
             ("bpm", getattr(self.args, "bpm", None) if getattr(self.args, "bpm", None) is not None else "auto"),
             ("keyscale", getattr(self.args, "keyscale", None) or "auto"),
@@ -1341,15 +1590,55 @@ class MusicREPL(cmd.Cmd):
             print(f"{key.rjust(width)}: {value}")
 
     def do_models(self, arg: str = "") -> None:
-        from .model_capabilities import MusicModelCapabilitiesRegistry
-
         tokens = self._tokens(arg)
         task = tokens[0] if tokens else None
-        reg = MusicModelCapabilitiesRegistry()
+        reg = self._get_registry()
+        current_engine = self._effective_engine()
+        current_model = self._effective_model_id()
+
+        rows: list[dict[str, str]] = []
         for spec in reg.list_models(task=task):
-            backends = ",".join(spec.backend_kinds)
-            rec = "recommended" if spec.recommended else "candidate"
-            print(f"{spec.id} [{spec.provider}] {rec} status={spec.status} backends={backends}")
+            engine = self._engine_for_model_id(spec.id) or ",".join(spec.backend_kinds) or "unknown"
+            rec = "yes" if spec.recommended else "no"
+            max_dur = f"{spec.max_duration_s:g}s" if spec.max_duration_s is not None else ""
+            locality = "remote" if bool(spec.raw.get("remote", False)) else "local"
+            marker = "*" if (str(spec.id) == str(current_model) and str(engine) == str(current_engine)) else " "
+            rows.append(
+                {
+                    "sel": marker,
+                    "engine": str(engine),
+                    "model_id": str(spec.id),
+                    "provider": str(spec.provider),
+                    "rec": rec,
+                    "status": str(spec.status),
+                    "where": locality,
+                    "max": max_dur,
+                }
+            )
+
+        if not rows:
+            print("No models found.")
+            return
+
+        rows.sort(key=lambda r: (r["engine"], r["rec"] != "yes", r["provider"].lower(), r["model_id"].lower()))
+        w_engine = max(len(r["engine"]) for r in rows)
+        w_model = max(len(r["model_id"]) for r in rows)
+        w_provider = max(len(r["provider"]) for r in rows)
+        w_status = max(len(r["status"]) for r in rows)
+        w_where = max(len(r["where"]) for r in rows)
+        w_max = max(len(r["max"]) for r in rows)
+
+        print(
+            f"  {'ENGINE'.ljust(w_engine)}  {'MODEL'.ljust(w_model)}  {'PROVIDER'.ljust(w_provider)}  REC  {'WHERE'.ljust(w_where)}  {'MAX'.ljust(w_max)}  {'STATUS'.ljust(w_status)}"
+        )
+        last_engine = None
+        for r in rows:
+            if last_engine is not None and r["engine"] != last_engine:
+                print("")
+            last_engine = r["engine"]
+            print(
+                f"{r['sel']} {r['engine'].ljust(w_engine)}  {r['model_id'].ljust(w_model)}  {r['provider'].ljust(w_provider)}  {r['rec'].rjust(3)}  {r['where'].ljust(w_where)}  {r['max'].ljust(w_max)}  {r['status'].ljust(w_status)}"
+            )
 
 
 def _cmd_repl(args: argparse.Namespace) -> int:
@@ -1365,7 +1654,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         if args.cmd == "t2m":
             return _cmd_t2m(args)
-        if args.cmd == "repl":
+        if args.cmd in {"repl", "cli"}:
             return _cmd_repl(args)
     except AbstractMusicError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

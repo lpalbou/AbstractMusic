@@ -10,6 +10,7 @@ theme:
 nav:
   - Home: README.md
   - Getting Started: getting-started.md
+  - REPL Guide: repl.md
   - API: api.md
   - Architecture: architecture.md
   - Models: models.md

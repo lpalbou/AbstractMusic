@@ -7,6 +7,7 @@ runtimes for Apple or GPU machines.
 Core docs:
 
 - [Getting started](getting-started.md)
+- [REPL guide](repl.md)
 - [Architecture](architecture.md)
 - [API](api.md)
 - [Models](models.md)

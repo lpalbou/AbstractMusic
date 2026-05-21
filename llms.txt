@@ -10,6 +10,7 @@ generation backends, using the CLI/API, integrating with AbstractCore, and relea
 - [README.md](README.md): project overview, install profiles, quick starts, CLI examples, text planning boundary, licensing, and Apple/MPS notes.
 - [docs/README.md](docs/README.md): documentation index for users, contributors, and tools.
 - [docs/getting-started.md](docs/getting-started.md): install commands, first generation examples, CLI and REPL usage, and real-model smoke testing.
+- [docs/repl.md](docs/repl.md): REPL guide: engines vs models, discovery commands, switching rules, offline/download toggle, and duration limits.
 - [docs/architecture.md](docs/architecture.md): provider boundary, text planning boundary, dependency policy, precision policy, and AbstractCore integration shape.
 - [docs/api.md](docs/api.md): `MusicManager`, request fields, text planner injection, model registry, and built-in backend kinds.
 - [docs/models.md](docs/models.md): reviewed model metadata, provider status, license notes, and precision rules.

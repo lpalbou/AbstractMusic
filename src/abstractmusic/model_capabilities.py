@@ -20,6 +20,7 @@ class MusicModelSpec:
     license: Optional[str]
     commercial_allowed: Optional[bool]
     recommended: bool
+    default_for_backend: bool
     status: str
     tasks: Sequence[str]
     input_modalities: Sequence[str]
@@ -95,6 +96,7 @@ def _parse_model(raw: Dict[str, Any]) -> MusicModelSpec:
         license=str(raw["license"]).strip() if raw.get("license") is not None else None,
         commercial_allowed=raw.get("commercial_allowed") if isinstance(raw.get("commercial_allowed"), bool) else None,
         recommended=bool(raw.get("recommended", False)),
+        default_for_backend=bool(raw.get("default_for_backend", False)),
         status=str(raw.get("status") or "unknown"),
         tasks=tasks,
         input_modalities=_as_str_sequence(raw.get("input_modalities"), field_name=f"{model_id}.input_modalities"),
@@ -172,4 +174,3 @@ class MusicModelCapabilitiesRegistry:
         if not spec.supports_task(task):
             raise CapabilityNotSupportedError(f"Model {model_id!r} does not support task {task!r}.")
         return spec
-

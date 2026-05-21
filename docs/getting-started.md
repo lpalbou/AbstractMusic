@@ -104,15 +104,18 @@ preserves raw user text and explicit metadata. Library and AbstractCore plugin c
 Use the REPL to try prompts, engines, and generation parameters without restarting:
 
 ```bash
-abstractmusic repl --engine acemusic --duration 30 --out-dir smoke-artifacts/repl
-abstractmusic repl --engine acestep --duration 10 --out-dir smoke-artifacts/repl
-abstractmusic repl --engine xl --duration 10 --out-dir smoke-artifacts/repl
-abstractmusic repl --engine musicgen --duration 10 --out-dir smoke-artifacts/repl
+abstractmusic cli --engine acemusic --duration 30 --out-dir smoke-artifacts/repl
+abstractmusic cli --engine acestep --duration 10 --out-dir smoke-artifacts/repl
+abstractmusic cli --engine xl --duration 10 --out-dir smoke-artifacts/repl
+abstractmusic cli --engine musicgen --duration 10 --out-dir smoke-artifacts/repl
 ```
 
 Inside the REPL:
 
 ```text
+/status
+/engines
+/models
 /engine acestep
 /duration 12
 /bpm 128
@@ -129,7 +132,6 @@ Inside the REPL:
 /run
 bright melodic synth pop loop with steady drums
 /params
-/models
 /exit
 ```
 
@@ -151,7 +153,7 @@ For ACE-Step turbo checkpoints, keep `/shift 3` with `/steps 8` unless deliberat
 quality issue. The turbo schedule is tuned around `shift=3.0`; `shift=1.0` with 8 steps
 can produce collapsed or overly repetitive output.
 
-Duration can be set when starting the REPL (`abstractmusic repl --duration 30`) or during a session
+Duration can be set when starting the REPL (`abstractmusic cli --duration 30`) or during a session
 with `/duration 30`. ACE-Step v1.5 constrains generation to 10-600 seconds; values below 10 seconds
 are not a reliable smoke target for that backend.
 

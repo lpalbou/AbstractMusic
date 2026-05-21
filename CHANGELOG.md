@@ -6,6 +6,26 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.8] - 2026-05-21
+
+### Added
+
+- Added `abstractmusic cli` as an alias for launching the interactive REPL.
+- Added REPL discovery commands: `/status` and `/engines`.
+- Added a download/offline toggle: CLI `--download/--no-download` and REPL `/download on|off`.
+
+### Changed
+
+- REPL `/model <id>` now auto-switches the engine when the model is known in the packaged registry,
+  and auto-clamps duration when a model has a declared max duration.
+- REPL `/models` output is now an aligned table grouped by engine for readability.
+- CLI default models are now sourced from the packaged model registry (via `default_for_backend`)
+  instead of hardcoded mappings.
+
+### Docs
+
+- Added a dedicated REPL guide (`docs/repl.md`) and linked it from the docs index and MkDocs nav.
+
 ## [0.1.7] - 2026-05-21
 
 ### Added

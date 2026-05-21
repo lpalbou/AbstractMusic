@@ -11,6 +11,7 @@ docs and package metadata are canonical.
 - [README.md](README.md): overview, installation, quick starts, CLI, text planning, licensing, CI/CD, and Apple/MPS behavior.
 - [docs/README.md](docs/README.md): docs tree index.
 - [docs/getting-started.md](docs/getting-started.md): install and first-run workflows.
+- [docs/repl.md](docs/repl.md): REPL commands, engine/model switching rules, downloads/offline toggle, and duration limits.
 - [docs/architecture.md](docs/architecture.md): core contracts and dependency boundaries.
 - [docs/api.md](docs/api.md): public API, request fields, planner hooks, registry, and backend kinds.
 - [docs/models.md](docs/models.md): reviewed model list and license/precision policy.
@@ -93,6 +94,29 @@ mode, and model listing.
 
 Fast tests use fakes for most model components. Real model smoke tests are opt-in with
 `ABSTRACTMUSIC_RUN_REAL_MODEL_TESTS=1` because checkpoints are large and hardware-sensitive.
+
+---
+
+## docs/repl.md
+
+The REPL (`abstractmusic cli` / `abstractmusic repl`) is the interactive shell for iterating on
+prompts, engines, models, and parameters without restarting. It separates **engine** (backend
+implementation) from **model** (packaged model id, usually a Hugging Face repo for local engines).
+
+Discovery commands:
+
+- `/engines` lists engines and their default models.
+- `/models` lists known packaged models, grouped by engine.
+- `/status` shows the active engine, effective model, and key params.
+
+Routing rules:
+
+- `/model <id>` auto-switches the engine when the model is known in the registry.
+- Changing `/engine` clears an incompatible explicit `/model` back to the engine default.
+- `/download on|off` toggles whether local Hugging Face engines may download missing files.
+
+Stable Audio Open Small (`stable-audio`) is capped at 11 seconds. Stable Audio 3 (`stable-audio-3`)
+supports longer durations (Small Music up to 120 seconds; Medium up to 380 seconds).
 
 ---
 

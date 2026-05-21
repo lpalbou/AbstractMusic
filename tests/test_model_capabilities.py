@@ -165,10 +165,32 @@ def test_acestep_diffusers_registry_tracks_default_route():
     spec = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-xl-turbo-diffusers")
 
     assert spec.recommended is True
+    assert spec.default_for_backend is True
     assert spec.status == "validated-mps-bf16-cpu-fallback"
     assert spec.backend_kinds[0] == "acestep-diffusers"
     assert spec.dependency_extra == "acestep-diffusers"
     assert "Local `acestep` route" in spec.notes
+
+
+@pytest.mark.unit
+def test_registry_tracks_default_models_for_cli_engines():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    reg = MusicModelCapabilitiesRegistry()
+    defaults: dict[str, list[str]] = {}
+    for spec in reg.list_models():
+        if not getattr(spec, "default_for_backend", False):
+            continue
+        for kind in spec.backend_kinds:
+            defaults.setdefault(str(kind), []).append(str(spec.id))
+
+    assert defaults.get("acemusic") == ["acemusic/ace-step-api"]
+    assert defaults.get("elevenlabs") == ["elevenlabs/music_v1"]
+    assert defaults.get("acestep-diffusers") == ["ACE-Step/acestep-v15-xl-turbo-diffusers"]
+    assert defaults.get("acestep-v15") == ["ACE-Step/Ace-Step1.5"]
+    assert defaults.get("musicgen") == ["facebook/musicgen-small"]
+    assert defaults.get("stable-audio") == ["stabilityai/stable-audio-open-small"]
+    assert defaults.get("stable-audio-3") == ["stabilityai/stable-audio-3-small-music"]
 
 
 @pytest.mark.unit
