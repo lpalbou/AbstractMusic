@@ -85,8 +85,9 @@ install profile is:
 pip install "abstractmusic[acestep]"
 ```
 
-The `stable-audio` extra intentionally avoids the full upstream `stable-audio-tools` dependency
-chain. For that backend, install `stable-audio-tools` with `--no-deps`.
+The `stable-audio` extra targets the gated `stabilityai/stable-audio-open-small` checkpoint and
+vendors the minimal `stable-audio-tools==0.0.19` model code inside AbstractMusic, so users do not
+need to install the upstream `stable-audio-tools` package.
 The `stable-audio-3` extra installs only Torch, Transformers, Safetensors, Hugging Face Hub,
 NumPy, and Einops for the internal Small Music text-to-music path. It excludes upstream runtime
 packages, Flash-Attn, codec libraries, UI, training, and LoRA dependencies.
@@ -213,8 +214,8 @@ Common user-visible issues:
   with `--device cpu`.
 - Long generations may need explicit structure, seed changes, or clearer prompts to avoid static or
   repetitive output.
-- Stable Audio Open Small requires Hugging Face gate approval and a `stable-audio-tools` install
-  with `--no-deps`.
+- Stable Audio Open Small requires Hugging Face gate approval and a token exposed as `HF_TOKEN` or
+  `HUGGINGFACE_HUB_TOKEN`.
 - Stable Audio 3 Small Music requires Hugging Face gate approval and a token exposed as `HF_TOKEN`
   or `HUGGINGFACE_HUB_TOKEN`; do not install an upstream Stable Audio 3 runtime package.
 - The release workflow refuses duplicate PyPI versions and requires manual publish confirmation
