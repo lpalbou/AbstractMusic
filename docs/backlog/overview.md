@@ -15,44 +15,28 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 
 ## Status counts
 
-- Planned: 8
+- Planned: 2
 - Proposed: 2
-- Completed: 8
-- Deprecated: 3
+- Completed: 12
+- Deprecated: 5
 - Recurrent: 2
 
 ## Priority bands
 
-- P0: make the standalone ACE-Step backend produce usable music through internal package code.
-- P0: add a repetition/novelty quality gate before calling ACE-Step output production-quality.
-- P1: add a small MusicGen validation backend so ACE-Step quality can be judged against a known
-  small text-to-music baseline.
-- P1: broaden Stable Audio 3.0 Small validation beyond the focused 30-second and 120-second
-  smokes before considering Medium or recommendation status.
-- P1: broaden provider coverage and improve quality metadata with real validation.
+- P1: keep provider routing, defaults, and duration handling truthful and robust.
+- P1: broaden local-engine validation (Stable Audio 3 and ACE-Step Diffusers) before changing any
+  recommendation/default status.
 - P2: evaluate optional/non-core model families without polluting the base install.
 
 ## Next recommended work
 
-1. Complete `planned/065_acestep_repetition_quality_gate.md`.
-2. Complete the broader validation in `planned/0083_stable_audio_3_local_provider_spike.md`.
-3. Complete `planned/070_musicgen_small_optional_provider.md`.
-4. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
-5. Complete `planned/030_acestep_diffusers_xl_provider.md`.
-6. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
-7. Complete `planned/055_heartmula_optional_provider.md`.
-8. Complete `planned/060_yue_optional_provider.md`.
+1. Complete `planned/055_heartmula_optional_provider.md`.
+2. Complete `planned/060_yue_optional_provider.md`.
 
 ## Planned work
 
 | Priority | Item | Outcome |
 | --- | --- | --- |
-| P1 | `planned/0083_stable_audio_3_local_provider_spike.md` | Broaden Stable Audio 3.0 Small validation after focused 30-second and 120-second implementation smokes, then decide whether Medium should follow. |
-| P1 | `planned/030_acestep_diffusers_xl_provider.md` | Add and validate a dedicated ACE-Step Diffusers provider for the official XL Turbo checkpoint. |
-| P1 | `planned/035_acestep_v15_backend_compatibility_hardening.md` | Stabilize or retire the current custom ACE-Step v1.5 backend with tested dependency bounds. |
-| P1 | `planned/045_audio_artifact_screening_and_quality_metadata.md` | Strengthen artifact screening and make quality validation metadata first-class. |
-| P0 | `planned/065_acestep_repetition_quality_gate.md` | Add a spectral novelty gate so repetitive harmonic loops are not treated as acceptable music. |
-| P1 | `planned/070_musicgen_small_optional_provider.md` | Add a small non-commercial MusicGen baseline provider for real quality comparison. |
 | P2 | `planned/055_heartmula_optional_provider.md` | Evaluate and implement HeartMuLa as an optional lyrics/tags music provider if dependency and runtime boundaries are acceptable. |
 | P2 | `planned/060_yue_optional_provider.md` | Evaluate YuE as an optional multi-stage lyrics-to-music provider without claiming partial token generation is audio. |
 
@@ -64,7 +48,11 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-15 | `completed/010_repo_hygiene_docs_and_packaging.md` | Added repo/docs baseline, license/security/contribution files, ignore rules, and cleaned generated tracked artifacts. |
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
+| 2026-05-21 | `completed/030_acestep_diffusers_xl_provider.md` | Added and validated the dedicated ACE-Step Diffusers provider for the official XL Turbo checkpoint. |
+| 2026-05-21 | `completed/045_audio_artifact_screening_and_quality_metadata.md` | Strengthened artifact screening and made validation state more explicit through smoke metrics, tests, and registry status. |
 | 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
+| 2026-05-21 | `completed/065_acestep_repetition_quality_gate.md` | Added repetition/novelty-oriented artifact screening and wired it into standalone ACE-Step quality reporting. |
+| 2026-05-21 | `completed/0083_stable_audio_3_local_provider_spike.md` | Implemented and validated Stable Audio 3 Small Music as a package-owned local backend (Small validated; Medium deferred). |
 | 2026-05-21 | `completed/0084_music_capability_residency_contract.md` | Exposed Core-friendly load/list/unload residency for local music engines without confusing remote discovery with local loaded state. |
 | 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
 | 2026-05-21 | `completed/0086_repl_ux_and_default_model_routing_hardening.md` | Made the REPL discoverable and robust (engine/model routing, aligned model listing, downloads toggle, and data-driven defaults). |
@@ -81,8 +69,10 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | Deprecated | Item | Reason |
 | --- | --- | --- |
 | 2026-05-20 | `deprecated/0025_external_acestep_runtime_wrapper.md` | Removed the out-of-package ACE-Step runtime wrapper path; standalone package code is required. |
+| 2026-05-21 | `deprecated/035_acestep_v15_backend_compatibility_hardening.md` | The validated default local path is `acestep-diffusers`; `acestep-v15` remains explicit/quality-limited and is not being hardened further. |
 | 2026-05-21 | `deprecated/0081_music_install_profile_boundary.md` | Superseded by completed dependency-profile implementation. |
 | 2026-05-21 | `deprecated/0075_stable_audio_open_small_validation.md` | Open Small validation is no longer tracked as separate planned work; keep it as an optional legacy backend and focus validation on Stable Audio 3. |
+| 2026-05-21 | `deprecated/070_musicgen_small_optional_provider.md` | MusicGen Small remains an optional non-commercial backend, but we are not pursuing further validation/recommendation work as part of the core roadmap. |
 
 ## Completion process
 

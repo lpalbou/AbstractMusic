@@ -25,6 +25,8 @@ No unreleased changes.
 ### Docs
 
 - Added a dedicated REPL guide (`docs/repl.md`) and linked it from the docs index and MkDocs nav.
+- Refreshed backlog lifecycle state (moved completed/deprecated items) and expanded `llms-full.txt`
+  to include ADR and backlog overview content for tool-friendly ingest.
 
 ## [0.1.7] - 2026-05-21
 

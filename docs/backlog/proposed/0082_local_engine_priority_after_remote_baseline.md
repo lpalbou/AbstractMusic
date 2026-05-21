@@ -44,7 +44,7 @@ Treat remote provider expansion as capped for now. Prioritize local work in this
 4. keep YuE as a multi-stage research track until Stage-2 and codec output can generate real audio.
 
 2026-05-21 update: the concrete next-engine recommendation was promoted to
-`docs/backlog/planned/0083_stable_audio_3_local_provider_spike.md`. Stable Audio 3.0 Small should
+`docs/backlog/completed/0083_stable_audio_3_local_provider_spike.md`. Stable Audio 3.0 Small should
 be evaluated before adding more remote providers or spending more time on the older Stable Audio
 Open Small short-clip path.
 

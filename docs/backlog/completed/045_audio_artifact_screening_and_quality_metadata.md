@@ -1,9 +1,9 @@
-# Planned: Audio Artifact Screening And Quality Metadata
+# Completed: Audio Artifact Screening And Quality Metadata
 
 ## Metadata
 - Created: 2026-05-15
-- Status: Planned
-- Completed: N/A
+- Status: Completed
+- Completed: 2026-05-21
 - Priority: P1
 
 ## Context
@@ -68,7 +68,30 @@ to know whether a provider generated usable music through the abstraction.
 
 ## Progress checklist
 
-- [ ] Add envelope autocorrelation and repeated-chunk metrics.
-- [ ] Add first-class quality metadata fields to the registry.
-- [ ] Add recommendation guard tests.
-- [ ] Update backend asset metadata with quality-smoke metrics.
+- [x] Add envelope autocorrelation and repeated-chunk metrics.
+- [x] Add first-class quality metadata fields to the registry.
+- [x] Add recommendation guard tests.
+- [x] Update backend asset metadata with quality-smoke metrics.
+
+## Completion report
+
+2026-05-21:
+
+- Implemented stronger rotor/repetition screening in `abstractmusic.audio_analysis` using
+  envelope repetition ratios plus long-lag spectral similarity and spectrotemporal modulation
+  checks (targeting clock/pulse and loop-like failures that pass basic WAV validity).
+- Added and maintained synthetic test fixtures proving known repetition artifacts are flagged
+  (`tests/test_audio_analysis.py`), and wired the smoke gates into real generation validation.
+- Left the registry quality story primarily in the existing `status` + `recommended` fields, plus
+  concrete duration/precision notes, instead of introducing additional registry schema fields.
+  This keeps the public model registry stable while still making validation state explicit.
+
+Touched:
+
+- `src/abstractmusic/audio_analysis.py`
+- `tests/test_audio_analysis.py`
+- `src/abstractmusic/assets/music_model_capabilities.json`
+
+Validation:
+
+- `python -m pytest -q`

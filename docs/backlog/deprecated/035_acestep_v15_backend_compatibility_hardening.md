@@ -1,10 +1,11 @@
-# Planned: ACE-Step V1.5 Backend Compatibility Hardening
+# Deprecated: ACE-Step V1.5 Backend Compatibility Hardening
 
 ## Metadata
 - Created: 2026-05-15
-- Status: Planned
+- Status: Deprecated
 - Completed: N/A
 - Priority: P1
+- Deprecated: 2026-05-21
 
 ## Context
 
@@ -83,7 +84,7 @@ environment.
 
 ## Dependencies and related tasks
 
-- `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
+- `docs/backlog/completed/030_acestep_diffusers_xl_provider.md`
 - `docs/backlog/completed/040_real_generation_validation_matrix.md`
 - `docs/backlog/completed/050_dependency_profiles_and_optional_providers.md`
 
@@ -121,3 +122,18 @@ limited before broad default claims.
 
 Do not paper over import failures with broader fallbacks. A smaller set of known-good versions is
 better than metadata that claims support for versions the backend cannot actually run.
+
+## Deprecation report
+
+2026-05-21:
+
+This item is no longer tracked as planned work.
+
+- The supported local ACE-Step path is `acestep-diffusers` (Diffusers `AceStepPipeline`) and is
+  already validated as the default local engine (`acestep` alias).
+- The custom `acestep-v15` backend remains in the repo as an explicit, quality-limited,
+  experimental path. It is not the default and is documented as such.
+- Compatibility hardening for the custom backend (tight version gates + compatibility matrix) is
+  not currently worth the maintenance cost relative to the validated Diffusers provider. If the
+  custom backend becomes strategically important again, open a new planned item scoped to one
+  tested dependency set plus one real smoke.

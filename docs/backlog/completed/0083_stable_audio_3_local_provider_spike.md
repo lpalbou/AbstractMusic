@@ -1,9 +1,9 @@
-# Planned: Stable Audio 3 Local Provider Spike
+# Completed: Stable Audio 3 Local Provider Spike
 
 ## Metadata
 - Created: 2026-05-21
-- Status: Planned, partial implementation landed
-- Completed: N/A
+- Status: Completed
+- Completed: 2026-05-21
 - Priority: P1
 
 ## ADR status
@@ -133,8 +133,8 @@ rather than depending on the upstream package as executable code.
 ## Dependencies and related tasks
 
 - `docs/adr/0001_music_provider_abstraction_and_dependency_policy.md`
-- `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
-- `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
+- `docs/backlog/completed/045_audio_artifact_screening_and_quality_metadata.md`
+- `docs/backlog/completed/065_acestep_repetition_quality_gate.md`
 - `docs/backlog/deprecated/0075_stable_audio_open_small_validation.md` (legacy Open Small validation item)
 - `docs/backlog/proposed/0082_local_engine_priority_after_remote_baseline.md`
 
@@ -259,3 +259,21 @@ handoff artifact.
 Treat Stable Audio 3.0 as the next local-engine spike, not as a guaranteed replacement. Start with
 Small because it validates the integration boundary at lower cost. Move to Medium only after the
 backend, quality gates, and duration handling are proven through AbstractMusic.
+
+## Completion report
+
+2026-05-21:
+
+- Stable Audio 3 Small Music is implemented as a package-owned runtime backend (`stable-audio-3`)
+  with Hugging Face weights only (no upstream `stable_audio_3` runtime dependency).
+- Real 30s and 120s smokes for Small Music were recorded and passed the existing quality gates
+  (WAV validity, non-finite/clipping/silence checks, harmonic-diversity floor, and
+  spectrotemporal artifact screening); see `test-artifacts/sa3-validation/`.
+- Medium remains listed but is not promoted as a default/recommended path because it is CUDA
+  oriented and GPU runtime behavior is not yet recorded in this repo.
+
+Follow-ups:
+
+- If GPU runtime behavior becomes a release-blocking question, add a new planned item that records
+  a minimal CUDA smoke and documents hardware constraints. This item is closed because the local
+  Small Music spike and validation evidence landed.

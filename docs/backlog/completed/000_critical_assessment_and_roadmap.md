@@ -76,7 +76,7 @@ implementing them.
 - `docs/adr/0001_music_provider_abstraction_and_dependency_policy.md`
 - `docs/backlog/planned/010_repo_hygiene_docs_and_packaging.md`
 - `docs/backlog/planned/020_music_abstraction_and_capability_registry.md`
-- `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
+- `docs/backlog/completed/030_acestep_diffusers_xl_provider.md`
 - `docs/backlog/completed/040_real_generation_validation_matrix.md`
 - `docs/backlog/completed/050_dependency_profiles_and_optional_providers.md`
 

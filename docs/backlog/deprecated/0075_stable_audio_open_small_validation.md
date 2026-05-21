@@ -76,8 +76,8 @@ If access fails, document the exact gated-access failure and leave status as con
 ## Dependencies And Related Tasks
 
 - `docs/backlog/completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md`
-- `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
-- `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
+- `docs/backlog/completed/045_audio_artifact_screening_and_quality_metadata.md`
+- `docs/backlog/completed/065_acestep_repetition_quality_gate.md`
 
 ## Expected Outcomes
 

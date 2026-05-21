@@ -1,9 +1,9 @@
-# Planned: ACE-Step Diffusers XL Provider
+# Completed: ACE-Step Diffusers XL Provider
 
 ## Metadata
 - Created: 2026-05-15
-- Status: Planned
-- Completed: N/A
+- Status: Completed
+- Completed: 2026-05-21
 - Priority: P1
 
 ## Context
@@ -114,7 +114,7 @@ without creating a vague utility layer.
 - [x] Add CLI and plugin selection.
 - [x] Add unit tests.
 - [x] Add docs and capability registry entry.
-- [ ] Run fast tests and at least one real smoke when hardware/model cache permits.
+- [x] Run fast tests and at least one real smoke when hardware/model cache permits.
 
 ## Progress notes
 
@@ -127,3 +127,26 @@ smoke remains pending.
 
 Do not hide ACE-Step-specific parameters inside a generic backend. The point of this task is a
 small explicit adapter under a stable public abstraction.
+
+## Completion report
+
+2026-05-21:
+
+- The dedicated `acestep-diffusers` backend is wired end-to-end (CLI + AbstractCore plugin) and
+  honors duration/lyrics by mapping to `AceStepPipeline` parameters (`audio_duration`, `lyrics`,
+  etc).
+- Real smoke generation has been exercised locally:
+  - `test-artifacts/real-generation/acestep_smoke.wav`
+  - `untracked/duration-check/acestep-diffusers-25.wav` (25s duration check harness)
+
+Touched:
+
+- `src/abstractmusic/backends/acestep_diffusers.py`
+- `src/abstractmusic/cli.py`
+- `src/abstractmusic/integrations/abstractcore_plugin.py`
+- `src/abstractmusic/assets/music_model_capabilities.json`
+- `tests/test_acestep_diffusers_backend.py`
+
+Validation:
+
+- `python -m pytest -q`

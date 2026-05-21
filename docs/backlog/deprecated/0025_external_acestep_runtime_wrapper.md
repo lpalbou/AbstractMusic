@@ -23,9 +23,9 @@ must not be treated as evidence that the standalone package backend works.
 
 Replacement work is tracked by:
 
-- `docs/backlog/planned/035_acestep_v15_backend_compatibility_hardening.md`
-- `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
-- `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
+- `docs/backlog/deprecated/035_acestep_v15_backend_compatibility_hardening.md`
+- `docs/backlog/completed/065_acestep_repetition_quality_gate.md`
+- `docs/backlog/completed/030_acestep_diffusers_xl_provider.md`
 
 ## Validation Expectations
 

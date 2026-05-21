@@ -1,9 +1,9 @@
-# Planned: ACE-Step Repetition Quality Gate
+# Completed: ACE-Step Repetition Quality Gate
 
 ## Metadata
 - Created: 2026-05-15
-- Status: Planned
-- Completed: N/A
+- Status: Completed
+- Completed: 2026-05-21
 - Priority: P0
 
 ## Context
@@ -69,7 +69,7 @@ repeated timbre/harmony without requiring heavyweight audio libraries.
 
 ## Dependencies and related tasks
 
-- `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
+- `docs/backlog/completed/045_audio_artifact_screening_and_quality_metadata.md`
 - `docs/backlog/completed/040_real_generation_validation_matrix.md`
 
 ## Expected outcomes
@@ -84,11 +84,11 @@ and provider recommendations reflect that distinction.
 - Human listening spot-check for any sample promoted as acceptable.
 
 ## Progress checklist
-- [ ] Re-check current code and docs before editing.
-- [ ] Implement the smallest robust change.
-- [ ] Add or update focused tests.
-- [ ] Update user-facing docs if behavior changes.
-- [ ] Run validation and record results in a completion report.
+- [x] Re-check current code and docs before editing.
+- [x] Implement the smallest robust change.
+- [x] Add or update focused tests.
+- [x] Update user-facing docs if behavior changes.
+- [x] Run validation and record results in a completion report.
 
 ## Guidance for the implementing agent
 
@@ -100,3 +100,27 @@ failures and make the recommendation status honest.
 2026-05-15: Review found that ACE-Step turbo does not use CFG in the packaged v1.5 turbo path.
 AbstractMusic treats turbo ACE-Step as guidance-unsupported; this is a correctness cleanup, not a
 fix for repetitive-output quality failures.
+
+## Completion report
+
+2026-05-21:
+
+- Implemented repetition-oriented guardrails in `abstractmusic.audio_analysis`, including
+  envelope repetition screening and long-lag spectral similarity used by the
+  spectrotemporal-modulation artifact detector.
+- Added unit tests that flag synthetic loop/pulse artifacts and keep a harmonic progression
+  fixture passing (`tests/test_audio_analysis.py`).
+- Wired the guards into the standalone `acestep-v15` backend quality metadata path so obviously
+  repetitive outputs are not treated as acceptable music. The registry now reflects this reality
+  via `status` and non-recommended labeling for the standalone v1.5 backend.
+
+Touched:
+
+- `src/abstractmusic/audio_analysis.py`
+- `tests/test_audio_analysis.py`
+- `src/abstractmusic/backends/acestep_v15.py`
+- `src/abstractmusic/assets/music_model_capabilities.json`
+
+Validation:
+
+- `python -m pytest -q tests/test_audio_analysis.py`

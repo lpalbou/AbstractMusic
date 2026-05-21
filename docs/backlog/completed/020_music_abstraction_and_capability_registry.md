@@ -82,7 +82,7 @@ Mirror AbstractVision's shape: dataclasses in `types.py`, an abstract or protoco
 ## Dependencies and related tasks
 
 - `docs/adr/0001_music_provider_abstraction_and_dependency_policy.md`
-- `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
+- `docs/backlog/completed/030_acestep_diffusers_xl_provider.md`
 - `docs/backlog/completed/050_dependency_profiles_and_optional_providers.md`
 
 ## Expected outcomes

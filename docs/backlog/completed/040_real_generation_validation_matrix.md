@@ -81,7 +81,7 @@ inspection. Reuse stdlib `wave` and small numeric checks; avoid adding audio ana
 
 ## Dependencies and related tasks
 
-- `docs/backlog/planned/030_acestep_diffusers_xl_provider.md`
+- `docs/backlog/completed/030_acestep_diffusers_xl_provider.md`
 - `docs/backlog/recurrent/dependency_and_artifact_hygiene.md`
 
 ## Expected outcomes

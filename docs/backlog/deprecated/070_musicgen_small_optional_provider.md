@@ -1,10 +1,11 @@
-# Planned: MusicGen Small Optional Provider
+# Deprecated: MusicGen Small Optional Provider
 
 ## Metadata
 - Created: 2026-05-15
-- Status: Planned
+- Status: Deprecated
 - Completed: N/A
 - Priority: P1
+- Deprecated: 2026-05-21
 
 ## Context
 
@@ -86,8 +87,8 @@ Add CLI/backend routing aliases (`musicgen`, `musicgen-small`) and registry test
 
 ## Dependencies And Related Tasks
 
-- `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
-- `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
+- `docs/backlog/completed/045_audio_artifact_screening_and_quality_metadata.md`
+- `docs/backlog/completed/065_acestep_repetition_quality_gate.md`
 - `src/abstractmusic/audio_analysis.py`
 
 ## Expected Outcomes
@@ -123,3 +124,18 @@ pending before this can be considered a working music provider.
 Treat this as a benchmark provider, not as a default product answer. Keep the implementation small,
 validate real audio, and preserve the provider abstraction so ACE-Step, MusicGen, and future
 models remain interchangeable from the caller's perspective.
+
+## Deprecation report
+
+2026-05-21:
+
+This item is closed as "not pursuing further" for now.
+
+- The `musicgen` backend exists and remains available as an optional, non-commercial comparison
+  provider (`facebook/musicgen-small`).
+- We are not planning additional real-smoke validation or recommendation work for MusicGen Small
+  as part of the core roadmap because the weights are non-commercial and Stable Audio 3 + ACE-Step
+  cover the primary local/remote goals.
+- If a user later needs a lightweight non-commercial baseline smoke for debugging the abstraction,
+  reopen a scoped validation item that records one short 10s artifact and metrics under
+  `test-artifacts/`.
