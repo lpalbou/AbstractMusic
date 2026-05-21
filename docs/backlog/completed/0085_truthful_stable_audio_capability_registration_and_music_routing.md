@@ -156,7 +156,7 @@ looks wrong even when it simply follows the catalog.
 2026-05-21:
 
 - Implemented a dedicated `abstractmusic:stable-audio` AbstractCore plugin backend that wraps
-  `StableAudioBackend` (Stable Audio Open Small via `stable-audio-tools`).
+  `StableAudioBackend` (Stable Audio Open Small via AbstractMusic-vendored stable-audio-tools model code).
 - Aligned AbstractCore-facing model discovery so catalog entries route to the correct registered
   `backend_id` based on `backend_kinds`, avoiding "advertised but not selectable" backends.
 - Added plugin registration coverage proving `abstractmusic:stable-audio` is registered.

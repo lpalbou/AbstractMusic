@@ -19,8 +19,8 @@ access approval.
 - The model registry tracks `stabilityai/stable-audio-open-small` as
   `configured-unvalidated-gated`.
 - `pyproject.toml` has a concrete `stable-audio` extra.
-- `src/abstractmusic/backends/stable_audio.py` wraps the official `stable-audio-tools`
-  `get_pretrained_model` and `generate_diffusion_cond` path.
+- `src/abstractmusic/backends/stable_audio.py` uses AbstractMusic-vendored `stable-audio-tools==0.0.19`
+  model code and a minimal rectified-flow inference loop (no upstream package install required).
 - The CLI/REPL route `--engine stable-audio` and aliases such as `stable-audio-open-small`.
 - The AbstractCore integration plugin registers `abstractmusic:stable-audio` (see
   `docs/backlog/completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md`),

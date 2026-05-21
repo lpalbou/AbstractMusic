@@ -235,6 +235,10 @@ packages = [
   "abstractmusic.integrations",
   "abstractmusic.vendor",
   "abstractmusic.vendor.acestep_v15_turbo",
+  "abstractmusic.vendor.stable_audio_open_min",
+  "abstractmusic.vendor.stable_audio_open_min.data",
+  "abstractmusic.vendor.stable_audio_open_min.inference",
+  "abstractmusic.vendor.stable_audio_open_min.models",
   "abstractmusic.vendor.stable_audio3_min",
   "abstractmusic.vendor.stable_audio3_min.data",
   "abstractmusic.vendor.stable_audio3_min.inference",
@@ -246,6 +250,7 @@ packages = [
 
 [tool.setuptools.package-data]
 abstractmusic = ["assets/*.json"]
+"abstractmusic.vendor.stable_audio_open_min" = ["LICENSE"]
 "abstractmusic.vendor.stable_audio3_min" = ["LICENSE"]
 
 [tool.setuptools.dynamic]

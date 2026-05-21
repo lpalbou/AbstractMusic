@@ -111,6 +111,20 @@ wav_bytes = llm.music.t2m("ambient lo-fi study music", format="wav", duration_s=
 open("out.wav", "wb").write(wav_bytes)
 ```
 
+You can also pass provider-neutral style tags (instruments, vocalist traits, mix notes) through the
+same contract:
+
+```python
+wav_bytes = llm.music.t2m(
+    "a clean jazz arrangement with a clear chorus lift",
+    duration_s=25.0,
+    lyrics="auto",
+    positive_styles=["saxophone", "brushed drums", "female vocalist"],
+    negative_styles=["no autotune", "no chipmunk voice"],
+)
+open("jazz.wav", "wb").write(wav_bytes)
+```
+
 ## Notes
 
 - The base default backend is `acemusic`, a remote ACE Music API adapter. It requires
@@ -125,7 +139,7 @@ open("out.wav", "wb").write(wav_bytes)
 - `acestep-v15` remains explicit and quality-limited after repeated-loop validation failures.
 - `musicgen`, `stable-audio`, and `stable-audio-3` are optional local comparison/generation
   backends; they are not default providers.
-- For Stable Audio Open Small, install `stable-audio-tools` with `--no-deps` after `abstractmusic[stable-audio]`; AbstractMusic avoids the upstream package's UI/training dependency chain and owns the minimal inference loop.
+- Stable Audio Open Small uses AbstractMusic-vendored `stable-audio-tools==0.0.19` model code and an internal minimal inference loop; you do not need to install the upstream `stable-audio-tools` package.
 - `stable-audio-3` uses an AbstractMusic-owned internal inference subset with Hugging Face
   weights/configs. It does not import the upstream `stable_audio_3` package or require a local
   Stable Audio checkout. Model terms must be accepted on Hugging Face. The current implementation
@@ -157,9 +171,34 @@ abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav -
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
 
+# Sound effects (Stable Audio 3 Small SFX)
+abstractmusic t2m \
+  --backend stable-audio-3 \
+  --model-id stabilityai/stable-audio-3-small-sfx \
+  --duration 3 \
+  --out sfx.wav \
+  "A short sci-fi laser zap, crisp transient, no reverb tail"
+
+# Sound effects (Stable Audio Open Small)
+abstractmusic t2m \
+  --backend stable-audio \
+  --duration 11 \
+  --out slam.wav \
+  "A heavy wooden door slam, close-mic, natural room tail"
+
 # Richer local conditioning for ACE-Step
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
 abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
+
+# Vocals + lyrics (ACE Music remote)
+abstractmusic t2m \
+  --backend acemusic \
+  --duration 25 \
+  --format mp3 \
+  --lyrics auto \
+  --style "soulful pop, female vocalist, warm bass, tight drums, big chorus, modern radio mix" \
+  --out soulful-pop.mp3 \
+  "A soulful pop song with a big uplifting chorus and a catchy hook"
 
 # Interactive REPL
 abstractmusic repl

@@ -6,6 +6,16 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.11] - 2026-05-21
+
+### Changed
+
+- `stable-audio` no longer requires installing `stable-audio-tools`; AbstractMusic now vendors the minimal `stable-audio-tools==0.0.19` model code for Stable Audio Open Small.
+
+### Docs
+
+- Added Stable Audio 3 Small SFX and Stable Audio Open Small SFX examples to `README.md` and `docs/getting-started.md`.
+
 ## [0.1.10] - 2026-05-21
 
 ### Added

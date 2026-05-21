@@ -1,20 +1,22 @@
 """
 Stable Audio Open backend adapter.
 
-This backend wraps the official `stable-audio-tools` inference path for
-Stability AI's Stable Audio Open Small model. The model is gated on Hugging
-Face, so loading may require `huggingface-cli login` and license acceptance.
+This backend targets Stability AI's gated Stable Audio Open Small checkpoint.
+AbstractMusic vendors the minimal `stable-audio-tools==0.0.19` model code under
+`abstractmusic.vendor.stable_audio_open_min` so users do not need to install
+the upstream package (which pulls heavy UI/training dependencies). The model
+is gated on Hugging Face, so loading may require `huggingface-cli login` and
+license acceptance.
 """
 
 from __future__ import annotations
 
 import gc
 import sys
-import types
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Sequence
 
-from ..errors import OptionalDependencyMissingError
+from ..errors import AbstractMusicError, OptionalDependencyMissingError
 from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities, ProviderModelInfo
 from .diffusers_audio import _encode_wav_bytes, _resolve_device
@@ -31,94 +33,15 @@ def _lazy_import_torch():
     return torch
 
 
-def _lazy_import_stable_audio_tools():
+def _lazy_import_stable_audio_open_min():
     try:
-        from stable_audio_tools import get_pretrained_model  # type: ignore
+        from ..vendor import stable_audio_open_min  # type: ignore
     except Exception as e:  # pragma: no cover
         raise OptionalDependencyMissingError(
-            "Optional dependency missing (or failed to import): stable-audio-tools. "
-            "Install via: pip install 'abstractmusic[stable-audio]' && "
-            "pip install --no-deps 'stable-audio-tools==0.0.19'"
+            "Optional dependency missing (or failed to import): abstractmusic stable-audio vendor runtime. "
+            "Reinstall AbstractMusic or file a bug report."
         ) from e
-    return get_pretrained_model
-
-
-class _DistributionShift:
-    def __init__(
-        self,
-        base_shift: float = 0.5,
-        max_shift: float = 1.15,
-        max_length: int = 4096,
-        min_length: int = 256,
-        use_sine: bool = False,
-    ) -> None:
-        self.base_shift = float(base_shift)
-        self.max_shift = float(max_shift)
-        self.max_length = int(max_length)
-        self.min_length = int(min_length)
-        self.use_sine = bool(use_sine)
-
-    def time_shift(self, t: Any, seq_len: int) -> Any:
-        import math
-
-        sigma = 1.0
-        denom = max(float(self.max_length - self.min_length), 1.0)
-        mu = -(self.base_shift + (self.max_shift - self.base_shift) * (float(seq_len) - self.min_length) / denom)
-        t_out = 1 - math.exp(mu) / (math.exp(mu) + (1 / (1 - t) - 1) ** sigma)
-        if self.use_sine:
-            t_out = (t_out * (math.pi / 2)).sin() if hasattr(t_out, "sin") else t_out
-        return t_out
-
-
-def _install_stable_audio_minimal_shims() -> None:
-    """Install tiny inference shims before stable-audio-tools imports model code.
-
-    The published stable-audio-tools package imports k-diffusion, UI, and
-    training-adjacent dependency chains even for the RF pingpong path used by
-    Stable Audio Open Small. These shims let model construction import while
-    this backend owns the minimal generation loop.
-    """
-
-    inference_name = "stable_audio_tools.inference"
-    if inference_name not in sys.modules:
-        try:
-            __import__(inference_name)
-        except Exception:
-            inference_mod = types.ModuleType(inference_name)
-            inference_mod.__path__ = []  # type: ignore[attr-defined]
-            sys.modules[inference_name] = inference_mod
-
-    sampling_name = "stable_audio_tools.inference.sampling"
-    if sampling_name not in sys.modules:
-        sampling_mod = types.ModuleType(sampling_name)
-        sampling_mod.DistributionShift = _DistributionShift
-
-        def _unsupported_sample(*_args: Any, **_kwargs: Any) -> Any:
-            raise RuntimeError("Stable Audio v-diffusion sampling is not available in AbstractMusic's minimal backend.")
-
-        sampling_mod.sample = _unsupported_sample
-        sys.modules[sampling_name] = sampling_mod
-
-    generation_name = "stable_audio_tools.inference.generation"
-    if generation_name not in sys.modules:
-        generation_mod = types.ModuleType(generation_name)
-
-        def _generate(model: Any, **kwargs: Any) -> Any:
-            torch = _lazy_import_torch()
-            return _generate_diffusion_cond_minimal(
-                torch,
-                model,
-                steps=int(kwargs.get("steps", 8)),
-                cfg_scale=float(kwargs.get("cfg_scale", 1.0)),
-                conditioning=kwargs.get("conditioning"),
-                sample_size=int(kwargs.get("sample_size", getattr(model, "sample_size", 44100 * 11))),
-                sampler_type=str(kwargs.get("sampler_type", "pingpong")),
-                seed=int(kwargs.get("seed", -1)),
-                device=str(kwargs.get("device", "cpu")),
-            )
-
-        generation_mod.generate_diffusion_cond = _generate
-        sys.modules[generation_name] = generation_mod
+    return stable_audio_open_min
 
 
 def _time_shift(dist_shift: Any, t: Any, seq_len: int) -> Any:
@@ -165,13 +88,13 @@ def _generate_diffusion_cond_minimal(
     sampler_type: str,
     seed: int,
     device: str,
-) -> Any:
+    ) -> Any:
     """Minimal Stable Audio RF generation path.
 
-    This intentionally avoids importing `stable_audio_tools.inference.generation`
-    because that module imports all of k-diffusion and pulls UI/training-oriented
-    dependencies. Stable Audio Open Small uses the rectified-flow path, which is
-    small enough to keep here.
+    AbstractMusic keeps this rectified-flow loop local so the `stable-audio`
+    backend does not depend on upstream sampling stacks (k-diffusion, UI, and
+    training tooling). Stable Audio Open Small uses the rectified-flow path,
+    which is small enough to keep here.
     """
 
     pretransform = getattr(model, "pretransform", None)
@@ -293,11 +216,22 @@ class StableAudioBackend:
             return
 
         torch = _lazy_import_torch()
-        get_pretrained_model = _lazy_import_stable_audio_tools()
-        _install_stable_audio_minimal_shims()
+        stable_audio_open = _lazy_import_stable_audio_open_min()
 
         device = _resolve_device(torch, self._config.device)
-        model, model_config = get_pretrained_model(str(self._config.model_id))
+        try:
+            model, model_config = stable_audio_open.get_pretrained_model(str(self._config.model_id))
+        except Exception as exc:
+            msg = str(exc)
+            name = type(exc).__name__
+            lowered = msg.lower()
+            if "gated" in lowered or "forbidden" in lowered or "403" in lowered or name in {"GatedRepoError"}:
+                raise AbstractMusicError(
+                    "Cannot download Stable Audio Open Small weights from Hugging Face (gated). "
+                    "Accept the model terms on Hugging Face and set `HF_TOKEN` / `HUGGINGFACE_HUB_TOKEN`, "
+                    "or run `huggingface-cli login`."
+                ) from exc
+            raise
         to_fn = getattr(model, "to", None)
         if callable(to_fn):
             model = to_fn(device)

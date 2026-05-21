@@ -39,9 +39,9 @@ Sources reviewed:
 ## Current code reality
 
 - `src/abstractmusic/backends/stable_audio.py` still targets the older
-  `stabilityai/stable-audio-open-small` model through `stable-audio-tools` and a short-clip
-  rectified-flow path. `stable-audio` and `stable-audio-open-small` remain aliases for that legacy
-  provider.
+  `stabilityai/stable-audio-open-small` model through AbstractMusic-vendored `stable-audio-tools==0.0.19`
+  model code and a short-clip rectified-flow path. `stable-audio` and `stable-audio-open-small`
+  remain aliases for that legacy provider.
 - `src/abstractmusic/backends/stable_audio_3.py` now exposes `abstractmusic:stable-audio-3` and
   CLI aliases such as `stable-audio-3`, `stable-audio-3-small`, and
   `stable-audio-3-small-music`.
@@ -248,9 +248,10 @@ handoff artifact.
     `test-artifacts/sa3-validation/2026-05-21-r3/analysis/summary.tsv`
 - Objective result: Stable Audio 3 passed all gates in the R3 120-second comparison; ACE-Step
   failed the reference-floor gate for the same prompt.
-- Local clean-room check: after uninstalling `stable-audio-tools`, `find_spec("stable_audio_3")`,
-  `find_spec("stable_audio_tools")`, and `find_spec("flash_attn")` all returned false, and a short
-  `--backend stable-audio-3` smoke still generated `/tmp/abstractmusic-sa3-no-upstream-tools.wav`.
+- Local clean-room check: without installing upstream `stable_audio_3` or `stable_audio_tools`,
+  `find_spec("stable_audio_3")`, `find_spec("stable_audio_tools")`, and `find_spec("flash_attn")`
+  all returned false, and a short `--backend stable-audio-3` smoke still generated
+  `/tmp/abstractmusic-sa3-no-upstream-tools.wav`.
 - Remaining caveats: do not mark Stable Audio 3 recommended until broader prompt/seed validation
   and GPU behavior are recorded.
 

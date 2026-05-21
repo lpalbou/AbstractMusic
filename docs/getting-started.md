@@ -32,14 +32,12 @@ pip install "abstractmusic[all-apple]"
 pip install "abstractmusic[all-gpu]"
 pip install "abstractmusic[musicgen]"
 pip install "abstractmusic[stable-audio]"
-pip install --no-deps stable-audio-tools==0.0.19  # old stable-audio backend only
 pip install "abstractmusic[stable-audio-3]"
 ```
 
-The extra `stable-audio` intentionally avoids the full `stable-audio-tools` dependency graph
-because the upstream package pulls UI/training dependencies and pins packages that do not install
-cleanly on Python 3.12. Install `stable-audio-tools` with `--no-deps`; AbstractMusic provides the
-minimal inference loop it needs.
+The extra `stable-audio` targets the gated `stabilityai/stable-audio-open-small` checkpoint and
+vendors the minimal `stable-audio-tools==0.0.19` model code inside AbstractMusic, so you do **not**
+need to install the upstream `stable-audio-tools` package.
 
 The `stable-audio-3` extra installs only the top-level runtime libraries needed by
 AbstractMusic's internal Stable Audio 3 text-to-music path: Torch, Transformers, Safetensors,
@@ -86,9 +84,12 @@ abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out 
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
+abstractmusic --backend stable-audio-3 t2m "A short sci-fi laser zap, crisp transient, no reverb tail" --model-id stabilityai/stable-audio-3-small-sfx --duration 3 --out sfx.wav
+abstractmusic --backend stable-audio t2m "A heavy wooden door slam, close-mic, natural room tail" --duration 11 --out slam.wav
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
 abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
 abstractmusic --backend acestep t2m "raw prompt only" --text-planner off --out out.wav --duration 30
+abstractmusic --backend acemusic t2m "A soulful pop song with a big uplifting chorus and a catchy hook" --lyrics auto --style "soulful pop, female vocalist, warm bass, tight drums, big chorus, modern radio mix" --format mp3 --duration 25 --out soulful-pop.mp3
 ```
 
 Use `--verbose` when you need backend logs and progress bars. By default the CLI keeps

@@ -142,8 +142,8 @@ The registry is metadata only. It must not silently change the configured provid
   package-owned orchestration.
 - `diffusers`: generic Diffusers audio backend for compatible audio pipelines.
 - `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
-- `stable-audio`: stable-audio-tools adapter for `stabilityai/stable-audio-open-small`
-  (gated, non-default, short clips).
+- `stable-audio`: vendored Stable Audio Open Small adapter for
+  `stabilityai/stable-audio-open-small` (gated, non-default, short clips).
 - `stable-audio-3`: internal AbstractMusic runtime for `stabilityai/stable-audio-3-small-music`
   and tracked Medium support. Uses Hugging Face weights/configs only; it does not import the
   upstream `stable_audio_3` package.

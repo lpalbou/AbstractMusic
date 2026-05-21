@@ -59,7 +59,7 @@ _RUNTIME_IMPORTS_BY_EXTRA = {
     "acestep-diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "musicgen": ("torch", "transformers", "safetensors", "huggingface_hub"),
-    "stable-audio": ("torch", "torchaudio", "transformers", "stable_audio_tools"),
+    "stable-audio": ("torch", "torchaudio", "numpy", "transformers", "safetensors", "huggingface_hub"),
     "stable-audio-3": ("torch", "transformers", "safetensors", "huggingface_hub", "einops"),
 }
 

@@ -117,12 +117,12 @@ seed or a more explicit prompt.
 ## Stable Audio Open Small cannot download weights
 
 `stabilityai/stable-audio-open-small` is gated on Hugging Face. Accept the model terms with the
-Hugging Face account used by the machine. The runtime also expects `stable-audio-tools` to be
-installed without its full dependency chain:
+Hugging Face account used by the machine and expose a token as `HF_TOKEN` or
+`HUGGINGFACE_HUB_TOKEN`.
 
 ```bash
 pip install "abstractmusic[stable-audio]"
-pip install --no-deps stable-audio-tools==0.0.19
+export HF_TOKEN=...
 ```
 
 ## Stable Audio 3 cannot download weights

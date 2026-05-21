@@ -8,7 +8,7 @@ import pytest
 
 
 @pytest.mark.unit
-def test_stable_audio_backend_uses_official_tools_contract(monkeypatch):
+def test_stable_audio_backend_uses_vendored_loader_contract(monkeypatch):
     from abstractmusic.backends.stable_audio import StableAudioBackend, StableAudioBackendConfig
     from abstractmusic.types import AudioGenerationRequest
 
@@ -50,9 +50,9 @@ def test_stable_audio_backend_uses_official_tools_contract(monkeypatch):
         calls["model_id"] = model_id
         return FakeModel(), {"sample_rate": 44100, "sample_size": 44100}
 
-    stable_mod = types.ModuleType("stable_audio_tools")
+    stable_mod = types.ModuleType("abstractmusic.vendor.stable_audio_open_min")
     stable_mod.get_pretrained_model = fake_get_pretrained_model
-    monkeypatch.setitem(sys.modules, "stable_audio_tools", stable_mod)
+    monkeypatch.setitem(sys.modules, "abstractmusic.vendor.stable_audio_open_min", stable_mod)
 
     backend = StableAudioBackend(config=StableAudioBackendConfig(device="cpu", duration_s=1.0))
     asset = backend.generate_audio(

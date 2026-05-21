@@ -117,6 +117,7 @@ clean base-only install and tighten provider-specific error messages/docs.
 2026-05-21: Added the stdlib-only `acemusic` remote backend, changed the CLI and AbstractCore
 plugin default to remote generation, added the `remote` no-op extra, expanded `all-apple` and
 `all-gpu` with supported local backend dependency families, and updated docs/tests to treat local
-generation as opt-in. `stable-audio-tools` remains intentionally documented as a separate
-`--no-deps` install because the upstream package dependency graph is not suitable for a framework
-aggregate extra.
+generation as opt-in. Stable Audio Open Small no longer requires installing the upstream
+`stable-audio-tools` package: AbstractMusic vendors the minimal `stable-audio-tools==0.0.19` model
+code and owns a minimal inference loop, keeping the same dependency discipline without the extra
+user-visible install step.
