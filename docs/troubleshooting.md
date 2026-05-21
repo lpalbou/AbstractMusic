@@ -16,6 +16,25 @@ abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
 If you use a compatible proxy or self-hosted endpoint, set `ACEMUSIC_BASE_URL` or pass
 `--acemusic-base-url`.
 
+## ACE Music returns the wrong duration
+
+ACE-Step OpenRouter-compatible servers support a *tagged mode* where the caption prompt is wrapped
+in `<prompt>...</prompt>`. Without tags, some deployments can ignore `audio_config.duration` and
+return audio that is longer or shorter than requested.
+
+AbstractMusic uses tagged prompts by default for the ACE Music backend (unless `sample_mode` is
+enabled). It also enforces duration **only for WAV outputs** by trimming or padding the returned
+WAV to the requested duration.
+
+If you need exact durations, use WAV:
+
+```bash
+abstractmusic t2m "ambient lo-fi study music" --duration 25 --format wav --out out.wav
+```
+
+If you request `--format mp3` or `--format flac`, duration is provider-controlled and may not
+match exactly; prefer a local backend when strict duration matters.
+
 ## ElevenLabs Music returns `limited_access` or HTTP 402
 
 The `elevenlabs` backend uses `ELEVENLABS_API_KEY` and only calls ElevenLabs Music endpoints.

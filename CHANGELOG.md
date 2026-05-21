@@ -6,6 +6,23 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.6] - 2026-05-21
+
+### Added
+
+- Added an AbstractCore plugin backend for Stable Audio Open Small (`abstractmusic:stable-audio`)
+  so discovery/catalog routing matches the advertised optional backend.
+
+### Changed
+
+- ACE Music requests use `<prompt>...</prompt>` tagged mode by default for more reliable duration
+  behavior.
+
+### Fixed
+
+- ACE Music WAV responses are trimmed/padded to the requested duration when the remote API returns
+  a mismatched length.
+
 ## [0.1.5] - 2026-05-21
 
 ### Added

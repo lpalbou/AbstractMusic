@@ -20,10 +20,12 @@ class _Response:
 
 
 @pytest.mark.unit
-def test_elevenlabs_music_backend_requires_api_key():
+def test_elevenlabs_music_backend_requires_api_key(monkeypatch):
     from abstractmusic.backends.elevenlabs_music import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
     from abstractmusic.errors import AbstractMusicError
     from abstractmusic.types import AudioGenerationRequest
+
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
 
     backend = ElevenLabsMusicBackend(config=ElevenLabsMusicBackendConfig(api_key=None))
 

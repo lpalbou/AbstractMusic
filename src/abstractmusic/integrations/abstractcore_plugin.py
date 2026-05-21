@@ -44,9 +44,12 @@ _BACKEND_ID_TO_KIND = {
     "abstractmusic:elevenlabs-music": "elevenlabs",
     "abstractmusic:acestep-diffusers": "acestep-diffusers",
     "abstractmusic:acestep-v15": "acestep-v15",
+    "abstractmusic:stable-audio": "stable-audio",
     "abstractmusic:stable-audio-3": "stable-audio-3",
     "abstractmusic:diffusers": "diffusers",
 }
+
+_BACKEND_KIND_TO_ID = {kind: backend_id for backend_id, kind in _BACKEND_ID_TO_KIND.items()}
 
 _RUNTIME_IMPORTS_BY_EXTRA = {
     "remote": (),
@@ -245,10 +248,19 @@ def _selected_backend_kind(backend_id: str) -> Optional[str]:
     return _BACKEND_ID_TO_KIND.get(str(backend_id or ""))
 
 
+def _backend_id_for_spec(spec: MusicModelSpec, *, default_backend_id: str) -> Optional[str]:
+    for kind in spec.backend_kinds:
+        backend_id = _BACKEND_KIND_TO_ID.get(str(kind))
+        if backend_id:
+            return backend_id
+    return str(default_backend_id).strip() or None
+
+
 def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[str, Any]:
     provider_id = _canonical_provider_id(spec.provider)
     remote = bool(spec.raw.get("remote", False))
     local = bool(spec.raw.get("local", not remote))
+    routed_backend_id = _backend_id_for_spec(spec, default_backend_id=backend_id)
     return {
         "model_id": spec.id,
         "provider_id": provider_id,
@@ -258,7 +270,7 @@ def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[st
         "local": local,
         "remote": remote,
         "status": spec.status,
-        "backend_id": backend_id,
+        "backend_id": routed_backend_id,
         "routed_model": spec.id,
         "formats": list(spec.output_formats),
         "source": spec.source_url,
@@ -1101,6 +1113,51 @@ class _AbstractMusicStableAudio3Capability(_AbstractMusicCapabilityBase):
         return self._backend
 
 
+class _AbstractMusicStableAudioCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using Stable Audio Open Small (stable-audio-tools)."""
+
+    backend_id = "abstractmusic:stable-audio"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        model_id = _require_model_id(self._owner) or "stabilityai/stable-audio-open-small"
+        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
+        steps = _owner_cfg_any(self._owner, "music_num_inference_steps") or _env("ABSTRACTMUSIC_NUM_INFERENCE_STEPS")
+        duration_s = _owner_cfg_any(self._owner, "music_duration_s") or _env("ABSTRACTMUSIC_DURATION_S")
+        guidance_scale = _owner_cfg_any(self._owner, "music_guidance_scale") or _env("ABSTRACTMUSIC_GUIDANCE_SCALE")
+
+        def _to_int(v: Any, default: int) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return int(default)
+
+        def _to_float(v: Any, default: float) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return float(default)
+
+        from ..backends.stable_audio import StableAudioBackend, StableAudioBackendConfig
+
+        cfg = StableAudioBackendConfig(
+            model_id=str(model_id),
+            device=str(device or "auto"),
+            duration_s=_to_float(duration_s, 11.0),
+            num_inference_steps=_to_int(steps, 8),
+            guidance_scale=_to_float(guidance_scale, 1.0),
+        )
+        self._backend = StableAudioBackend(config=cfg)
+        return self._backend
+
+
 def register(registry: Any) -> None:
     """Register AbstractMusic as an AbstractCore capability plugin."""
 
@@ -1157,6 +1214,17 @@ def register(registry: Any) -> None:
         "(default) or 'stabilityai/stable-audio-3-medium'. Local filesystem paths are rejected. "
         "Requires accepted Hugging Face model terms and the stable-audio-3 extra. "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'float16'.",
+    )
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicStableAudioCapability.backend_id,
+        factory=lambda owner: _AbstractMusicStableAudioCapability(owner),
+        priority=8,
+        description="AbstractMusic Stable Audio Open Small path (stable-audio-tools; gated Hugging Face weights).",
+        config_hint="Optional: set music_model_id to 'stabilityai/stable-audio-open-small'. "
+        "Local filesystem paths are rejected. Requires accepted Hugging Face model terms "
+        "and the stable-audio extra (stable-audio-tools). "
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu'.",
     )
 
     registry.register_music_backend(

@@ -15,10 +15,10 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 
 ## Status counts
 
-- Planned: 9
-- Proposed: 2
-- Completed: 5
-- Deprecated: 2
+- Planned: 8
+- Proposed: 3
+- Completed: 6
+- Deprecated: 3
 - Recurrent: 2
 
 ## Priority bands
@@ -42,7 +42,6 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 6. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
 7. Complete `planned/055_heartmula_optional_provider.md`.
 8. Complete `planned/060_yue_optional_provider.md`.
-9. Complete `planned/075_stable_audio_open_small_validation.md`.
 
 ## Planned work
 
@@ -54,7 +53,6 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | P1 | `planned/045_audio_artifact_screening_and_quality_metadata.md` | Strengthen artifact screening and make quality validation metadata first-class. |
 | P0 | `planned/065_acestep_repetition_quality_gate.md` | Add a spectral novelty gate so repetitive harmonic loops are not treated as acceptable music. |
 | P1 | `planned/070_musicgen_small_optional_provider.md` | Add a small non-commercial MusicGen baseline provider for real quality comparison. |
-| P2 | `planned/075_stable_audio_open_small_validation.md` | Validate the gated Stable Audio Open Small short-clip provider through AbstractMusic. |
 | P2 | `planned/055_heartmula_optional_provider.md` | Evaluate and implement HeartMuLa as an optional lyrics/tags music provider if dependency and runtime boundaries are acceptable. |
 | P2 | `planned/060_yue_optional_provider.md` | Evaluate YuE as an optional multi-stage lyrics-to-music provider without claiming partial token generation is audio. |
 
@@ -67,6 +65,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
 | 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
+| 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
 
 ## Proposed work
 
@@ -74,6 +73,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | --- | --- |
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 | `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
+| `proposed/0084_music_capability_residency_contract.md` | Promote when AbstractCore needs truthful `/acore/models/*` load/list/unload behavior for local music engines without confusing remote provider discovery with local residency. |
 
 ## Deprecated work
 
@@ -81,6 +81,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | --- | --- | --- |
 | 2026-05-20 | `deprecated/0025_external_acestep_runtime_wrapper.md` | Removed the out-of-package ACE-Step runtime wrapper path; standalone package code is required. |
 | 2026-05-21 | `deprecated/0081_music_install_profile_boundary.md` | Superseded by completed dependency-profile implementation. |
+| 2026-05-21 | `deprecated/0075_stable_audio_open_small_validation.md` | Open Small validation is no longer tracked as separate planned work; keep it as an optional legacy backend and focus validation on Stable Audio 3. |
 
 ## Completion process
 
@@ -129,3 +130,6 @@ When a planned item is complete:
 - Stable Audio 3.0 Small now has an internal package-owned text-to-music path that passed focused
   30-second and 120-second validation runs at 16 steps. It is still a spike, not a recommended
   default, until broader prompt/seed and GPU validation are recorded.
+- Stable Audio Open Small is registered and routed truthfully through the AbstractCore plugin as
+  `abstractmusic:stable-audio`, but it remains a gated short-clip legacy backend and is not marked
+  recommended.

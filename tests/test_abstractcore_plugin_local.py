@@ -198,13 +198,14 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 6
+    assert len(reg.registrations) == 7
     backend_ids = {r["backend_id"] for r in reg.registrations}
     assert backend_ids == {
         "abstractmusic:acemusic",
         "abstractmusic:elevenlabs-music",
         "abstractmusic:acestep-v15",
         "abstractmusic:acestep-diffusers",
+        "abstractmusic:stable-audio",
         "abstractmusic:stable-audio-3",
         "abstractmusic:diffusers",
     }
@@ -580,6 +581,13 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
     assert diffusers_record["backend_id"] == "abstractmusic:acestep-diffusers"
     assert diffusers_record["formats"] == ["wav"]
     assert diffusers_record["metadata"]["supports_lyrics"] is True
+
+    stability_models = cap.list_models(task="text_to_music", provider="Stability AI")
+    stability_model_ids = {item["model_id"] for item in stability_models}
+    assert "stabilityai/stable-audio-open-small" in stability_model_ids
+    stable_open = next(item for item in stability_models if item["model_id"] == "stabilityai/stable-audio-open-small")
+    assert stable_open["provider_id"] == "stability-ai"
+    assert stable_open["backend_id"] == "abstractmusic:stable-audio"
 
     operations = cap.list_operations(task="text2music")
     assert operations and operations[0]["task"] == "text_to_music"

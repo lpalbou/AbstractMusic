@@ -7,10 +7,12 @@ This backend intentionally uses only the Python standard library so the base
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 import urllib.error
 import urllib.request
+import wave
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -102,6 +104,62 @@ def _mime_for_format(fmt: str) -> str:
     if value == "ogg":
         return "audio/ogg"
     return "application/octet-stream"
+
+
+def _wrap_prompt_tag(text: str) -> str:
+    value = str(text or "")
+    if "<prompt>" in value and "</prompt>" in value:
+        return value
+    return f"<prompt>{value}</prompt>"
+
+
+def _enforce_wav_duration(data: bytes, *, duration_s: float) -> Tuple[bytes, Dict[str, Any]]:
+    target_duration = float(duration_s)
+    if target_duration <= 0:
+        raise ValueError("duration_s must be positive")
+
+    buf = io.BytesIO(bytes(data))
+    with wave.open(buf, "rb") as reader:
+        sample_rate = int(reader.getframerate())
+        channels = int(reader.getnchannels())
+        sample_width = int(reader.getsampwidth())
+        frames = int(reader.getnframes())
+        if sample_rate <= 0:
+            raise ValueError("WAV sample rate is invalid")
+        target_frames = int(round(target_duration * float(sample_rate)))
+        reader.rewind()
+        raw_frames = reader.readframes(frames)
+
+        frame_bytes = max(1, channels) * max(1, sample_width)
+        current_frames = int(frames)
+        if target_frames < 0:
+            target_frames = 0
+
+        if current_frames > target_frames:
+            raw_frames = raw_frames[: max(0, target_frames) * frame_bytes]
+        elif current_frames < target_frames:
+            pad_frames = int(target_frames - current_frames)
+            silence_byte = b"\x80" if sample_width == 1 else b"\x00"
+            raw_frames = raw_frames + (silence_byte * (pad_frames * frame_bytes))
+
+    out = io.BytesIO()
+    with wave.open(out, "wb") as writer:
+        writer.setnchannels(channels)
+        writer.setsampwidth(sample_width)
+        writer.setframerate(sample_rate)
+        writer.writeframes(raw_frames)
+    enforced_frames = int(target_frames)
+    return out.getvalue(), {
+        "requested_duration_s": target_duration,
+        "actual_duration_s": float(enforced_frames) / float(sample_rate) if sample_rate else None,
+        "sample_rate_hz": sample_rate,
+        "channels": channels,
+        "sample_width_bytes": sample_width,
+        "frames": frames,
+        "enforced_frames": enforced_frames,
+        "trimmed": bool(current_frames > target_frames),
+        "padded": bool(current_frames < target_frames),
+    }
 
 
 @dataclass(frozen=True)
@@ -224,13 +282,16 @@ class AceMusicBackend:
         if instrumental:
             audio_config["instrumental"] = True
 
+        sample_mode = bool(extra.get("sample_mode", self._config.sample_mode))
+        prompt_raw = str(request.prompt or "")
+        prompt_text = prompt_raw if sample_mode else _wrap_prompt_tag(prompt_raw)
         payload: Dict[str, Any] = {
-            "messages": [{"role": "user", "content": str(request.prompt or "")}],
+            "messages": [{"role": "user", "content": prompt_text}],
             "stream": False,
             "audio_config": audio_config,
             "temperature": float(self._config.temperature),
             "top_p": float(self._config.top_p),
-            "sample_mode": bool(extra.get("sample_mode", self._config.sample_mode)),
+            "sample_mode": sample_mode,
             "thinking": bool(extra.get("thinking", self._config.thinking)),
             "use_format": bool(extra.get("use_format", self._config.use_format)),
             "use_cot_caption": bool(extra.get("use_cot_caption", self._config.use_cot_caption)),
@@ -285,6 +346,13 @@ class AceMusicBackend:
         else:
             raise AbstractMusicError("ACE Music API returned unsupported audio URL format.")
 
+        trim_report: Optional[Dict[str, Any]] = None
+        if fmt == "wav" and request.duration_s is not None:
+            try:
+                data, trim_report = _enforce_wav_duration(bytes(data), duration_s=float(request.duration_s))
+            except Exception:
+                trim_report = None
+
         metadata = {
             "backend": self.backend_id,
             "provider": "ACE Music",
@@ -296,6 +364,8 @@ class AceMusicBackend:
             "audio_count": len(audios),
             "api_content": message.get("content"),
         }
+        if trim_report:
+            metadata["duration_enforcement"] = trim_report
         return GeneratedAsset(
             data=bytes(data),
             mime_type=str(mime or _mime_for_format(fmt)),

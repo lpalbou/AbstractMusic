@@ -135,7 +135,7 @@ rather than depending on the upstream package as executable code.
 - `docs/adr/0001_music_provider_abstraction_and_dependency_policy.md`
 - `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
 - `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
-- `docs/backlog/planned/075_stable_audio_open_small_validation.md`
+- `docs/backlog/deprecated/0075_stable_audio_open_small_validation.md` (legacy Open Small validation item)
 - `docs/backlog/proposed/0082_local_engine_priority_after_remote_baseline.md`
 
 ## Expected outcomes

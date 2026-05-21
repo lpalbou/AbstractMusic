@@ -1,9 +1,10 @@
-# Planned: Stable Audio Open Small Validation
+# Deprecated: Stable Audio Open Small Validation
 
 ## Metadata
 - Created: 2026-05-16
-- Status: Planned
+- Status: Deprecated
 - Completed: N/A
+- Deprecated: 2026-05-21
 - Priority: P2
 
 ## Context
@@ -21,11 +22,15 @@ access approval.
 - `src/abstractmusic/backends/stable_audio.py` wraps the official `stable-audio-tools`
   `get_pretrained_model` and `generate_diffusion_cond` path.
 - The CLI/REPL route `--engine stable-audio` and aliases such as `stable-audio-open-small`.
+- The AbstractCore integration plugin registers `abstractmusic:stable-audio` (see
+  `docs/backlog/completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md`),
+  but the model remains gated and unvalidated.
 
 ## Problem
 
-The backend is configured but cannot be considered working until a machine with accepted Hugging
-Face model access generates a real WAV and the artifact is inspected/listened to.
+The backend is configured and capability routing is now truthful, but the provider remains gated
+and should not be treated as validated until a machine with accepted Hugging Face model access can
+generate and inspect a real WAV.
 
 ## What We Want To Do
 
@@ -70,6 +75,7 @@ If access fails, document the exact gated-access failure and leave status as con
 
 ## Dependencies And Related Tasks
 
+- `docs/backlog/completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md`
 - `docs/backlog/planned/045_audio_artifact_screening_and_quality_metadata.md`
 - `docs/backlog/planned/065_acestep_repetition_quality_gate.md`
 
@@ -96,3 +102,16 @@ documented as gated/unusable in the current environment.
 
 Treat this as a short-clip provider until proven otherwise. The model card and license/access
 boundary matter as much as the code path.
+
+## Deprecation report
+
+2026-05-21:
+
+This validation item is no longer tracked as a separate planned workstream.
+
+- The Stable Audio Open Small backend remains available as an optional, gated, short-clip provider
+  (`abstractmusic:stable-audio`), but it is not a priority compared to the Stable Audio 3 track.
+- The capability-boundary gap that previously blocked higher-layer selection is closed by
+  `../completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md`.
+- Any future Open Small validation should be folded into broader provider-validation work rather
+  than revived as a standalone planned item.
