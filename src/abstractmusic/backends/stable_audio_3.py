@@ -8,6 +8,7 @@ not import or wrap the upstream `stable_audio_3` package.
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import sys
@@ -251,6 +252,32 @@ class _StableAudio3Runtime:
         self.device = str(device)
         self.model_half = bool(model_half)
 
+    def unload(self) -> None:
+        """Best-effort: release the loaded model and allocator caches."""
+        self.model = None
+        self.model_config = {}
+        self.device = "cpu"
+        self.model_half = False
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
+
     def _sample_rate(self) -> int:
         if self.model is not None:
             try:
@@ -383,6 +410,9 @@ class StableAudio3Backend:
 
     def preload(self) -> None:
         self._runtime.load()
+
+    def unload(self) -> None:
+        self._runtime.unload()
 
     def generate_audio(self, request: AudioGenerationRequest) -> GeneratedAsset:
         if request.lyrics:

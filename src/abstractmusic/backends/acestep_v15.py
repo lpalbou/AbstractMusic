@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import io
+import gc
 import math
 import os
 import random
@@ -858,6 +859,47 @@ class AceStepV15Backend:
         self._lm_model_label: Optional[str] = None
         self._lm_audio_token_ids: tuple[int, ...] = ()
         self._lm_think_end_token_id: Optional[int] = None
+
+    def preload(self) -> None:
+        """Best-effort: load weights into memory without generating audio."""
+        self._ensure_loaded()
+
+    def unload(self) -> None:
+        """Best-effort: release model weights and allocator caches."""
+        self._model = None
+        self._vae = None
+        self._text_tokenizer = None
+        self._text_encoder = None
+        self._silence_latent = None
+        self._loaded = False
+
+        self._release_lm_runtime()
+
+        self._device = None
+        self._text_device = None
+        self._dtype = None
+        self._vae_dtype = None
+
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            gc.collect()
+        except Exception:
+            pass
 
     def get_capabilities(self) -> MusicBackendCapabilities:
         return MusicBackendCapabilities(

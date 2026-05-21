@@ -6,6 +6,24 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.7] - 2026-05-21
+
+### Added
+
+- Exposed a Core-friendly music residency surface (`load_resident_model`, `list_loaded_models`,
+  `list_resident_models`, `unload_resident_model`) for local backends, with best-effort backend
+  `preload()` / `unload()` hooks.
+
+### Changed
+
+- Expanded the ACE-Step Diffusers model registry with additional community Diffusers conversions
+  (Runware) so users can test smaller/alternate DiT variants via `--model-id`.
+- ACE-Step Diffusers now advertises and forwards `guidance_scale` when provided.
+
+### Docs
+
+- Documented the residency surface and community ACE-Step Diffusers conversions.
+
 ## [0.1.6] - 2026-05-21
 
 ### Added

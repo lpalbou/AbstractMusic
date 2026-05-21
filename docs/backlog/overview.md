@@ -16,8 +16,8 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 ## Status counts
 
 - Planned: 8
-- Proposed: 3
-- Completed: 6
+- Proposed: 2
+- Completed: 7
 - Deprecated: 3
 - Recurrent: 2
 
@@ -65,6 +65,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
 | 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
+| 2026-05-21 | `completed/0084_music_capability_residency_contract.md` | Exposed Core-friendly load/list/unload residency for local music engines without confusing remote discovery with local loaded state. |
 | 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
 
 ## Proposed work
@@ -73,7 +74,6 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | --- | --- |
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 | `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
-| `proposed/0084_music_capability_residency_contract.md` | Promote when AbstractCore needs truthful `/acore/models/*` load/list/unload behavior for local music engines without confusing remote provider discovery with local residency. |
 
 ## Deprecated work
 

@@ -8,6 +8,7 @@ generates audio in-process. Output is encoded as WAV bytes using the stdlib
 
 from __future__ import annotations
 
+import gc
 import inspect
 import io
 import sys
@@ -171,6 +172,34 @@ class DiffusersAudioBackend:
         mid = str(config.model_id or "").strip()
         if not mid:
             raise ValueError("model_id is required for DiffusersAudioBackend")
+
+    def preload(self) -> None:
+        """Best-effort: load the Diffusers pipeline into memory."""
+        self._load_pipe()
+
+    def unload(self) -> None:
+        """Best-effort: release the Diffusers pipeline and free allocator caches."""
+        self._pipe = None
+        self._pipe_device = None
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
 
     def get_capabilities(self) -> MusicBackendCapabilities:
         return MusicBackendCapabilities(

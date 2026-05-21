@@ -1,8 +1,9 @@
-# Proposed: Music Capability Residency Contract
+# Completed: Music Capability Residency Contract
 
 ## Metadata
 - Created: 2026-05-21
-- Status: Proposed
+- Status: Completed
+- Completed: 2026-05-21
 - Priority: P1
 
 ## Context
@@ -67,3 +68,29 @@ once AbstractMusic exposes these methods.
 - Unit-test remote providers stay stateless.
 - Unit-test discovery does not load a model.
 - Add one Core contract test once Core dispatches `music_generation`.
+
+## Completion report
+
+2026-05-21:
+
+- Added `load_resident_model(...)`, `list_loaded_models(...)`, `list_resident_models(...)`, and
+  `unload_resident_model(...)` to the AbstractCore capability objects so Core can warm, list, and
+  unload local music runtimes truthfully.
+- Implemented best-effort `preload()` / `unload()` hooks on local backends so residency calls can
+  reuse or release in-process pipelines without loading during discovery.
+- Added unit tests proving local load/list/unload works and remote providers remain stateless.
+
+Touched:
+
+- `src/abstractmusic/integrations/abstractcore_plugin.py`
+- `src/abstractmusic/backends/acestep_diffusers.py`
+- `src/abstractmusic/backends/acestep_v15.py`
+- `src/abstractmusic/backends/diffusers_audio.py`
+- `src/abstractmusic/backends/musicgen.py`
+- `src/abstractmusic/backends/stable_audio.py`
+- `src/abstractmusic/backends/stable_audio_3.py`
+- `tests/test_abstractcore_plugin_local.py`
+
+Validation:
+
+- `python -m pytest -q`

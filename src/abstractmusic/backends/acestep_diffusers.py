@@ -8,6 +8,7 @@ backend cannot safely infer ACE-Step's `audio_duration`, `lyrics`, and
 
 from __future__ import annotations
 
+import gc
 import inspect
 import io
 import sys
@@ -222,13 +223,42 @@ class AceStepDiffusersBackend:
         self._pipe_device = None
         self._pipe_dtype = None
 
+    def preload(self) -> None:
+        """Best-effort: load the Diffusers pipeline weights into memory."""
+        self._load_pipe()
+
+    def unload(self) -> None:
+        """Best-effort: release the Diffusers pipeline and free accelerator memory."""
+        self._pipe = None
+        self._pipe_device = None
+        self._pipe_dtype = None
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
+
     def get_capabilities(self) -> MusicBackendCapabilities:
         return MusicBackendCapabilities(
             supported_tasks=("text_to_music",),
             output_formats=("wav",),
             supports_lyrics=True,
             supports_negative_prompt=False,
-            supports_guidance_scale=False,
+            supports_guidance_scale=True,
             supports_reference_audio=None,
             supports_video=False,
             model_id=str(self._config.model_id),
@@ -273,8 +303,6 @@ class AceStepDiffusersBackend:
     def generate_audio(self, request: AudioGenerationRequest) -> GeneratedAsset:
         if request.negative_prompt:
             raise ValueError("ACE-Step Diffusers XL Turbo does not support negative_prompt.")
-        if request.guidance_scale is not None:
-            raise ValueError("ACE-Step Diffusers XL Turbo is guidance-distilled; omit guidance_scale.")
 
         torch = _lazy_import_torch()
         pipe = self._load_pipe()
@@ -301,8 +329,9 @@ class AceStepDiffusersBackend:
             "vocal_language": vocal_language,
             "num_inference_steps": int(steps),
         }
-        if self._config.guidance_scale is not None:
-            kwargs["guidance_scale"] = float(self._config.guidance_scale)
+        guidance_scale = request.guidance_scale if request.guidance_scale is not None else self._config.guidance_scale
+        if guidance_scale is not None:
+            kwargs["guidance_scale"] = float(guidance_scale)
         if self._config.shift is not None:
             kwargs["shift"] = float(self._config.shift)
 
@@ -435,6 +464,8 @@ class AceStepDiffusersBackend:
                 "has_long_trailing_fade": bool(continuity_stats.has_long_trailing_fade),
             },
         }
+        if guidance_scale is not None:
+            metadata["guidance_scale"] = float(guidance_scale)
         if request.seed is not None:
             metadata["seed"] = int(request.seed)
 

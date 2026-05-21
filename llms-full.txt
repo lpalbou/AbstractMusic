@@ -126,7 +126,9 @@ deterministic planner. `required` raises on provider failure, and `off` preserve
 
 The AbstractCore plugin exposes discovery methods such as `available_providers(...)`,
 `list_models(...)`, `list_provider_models(...)`, `list_operations(...)`, and
-`capability_catalog(...)` from packaged metadata without loading model weights.
+`capability_catalog(...)` from packaged metadata without loading model weights. It also exposes an
+optional residency surface (`load_resident_model`, `list_loaded_models`, `list_resident_models`,
+`unload_resident_model`) for local backends; remote providers remain stateless.
 
 Built-in backend kinds include `acemusic`, `elevenlabs`, `acestep`, `acestep-diffusers`,
 `acestep-v15`, `diffusers`, `musicgen`, `stable-audio`, and `stable-audio-3`.
@@ -156,6 +158,9 @@ Reviewed model entries include:
   default.
 - `stabilityai/stable-audio-3-medium`: tracked behind `stable-audio-3` but not promoted before
   broader Small Music validation.
+- Community ACE-Step Diffusers conversions (hosted by Runware) are tracked for testing smaller or
+  alternate DiT variants via the `acestep-diffusers` backend, but they are not treated as reviewed
+  or recommended models.
 - Additional candidate models are tracked for future optional providers.
 
 The precision rule is to prefer official 8-bit artifacts when available. If none are available,
@@ -170,6 +175,8 @@ Common user-visible issues:
 - Missing generation packages usually means the backend extra was not installed.
 - Missing default remote generation credentials means `ACEMUSIC_API_KEY` is not set. Use
   `ACEMUSIC_BASE_URL` only for compatible custom endpoints.
+- If ACE Music returns the wrong duration, use tagged `<prompt>...</prompt>` mode and WAV outputs
+  for strict duration enforcement.
 - ElevenLabs Music live generation may return HTTP 402 `limited_access` if the key is valid but
   the account tier does not include Music API access.
 - ACE-Step model access uses Hugging Face model weights and the standard Hugging Face cache, not

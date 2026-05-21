@@ -20,6 +20,8 @@ import inspect
 import json
 import os
 import re
+import threading
+import time
 from typing import Any, Dict, List, Optional
 
 from ..artifacts import RuntimeArtifactStoreAdapter
@@ -495,6 +497,217 @@ class _AbstractMusicCapabilityBase:
         self._owner = owner
         self._backend = None
         self._text_planner = None
+        self._state_lock = threading.RLock()
+        self._loaded_models: Dict[str, Dict[str, Any]] = {}
+
+    def _residency_kind(self) -> str:
+        return str(_selected_backend_kind(str(getattr(self, "backend_id", ""))) or "").strip()
+
+    def _residency_is_remote(self) -> bool:
+        return self._residency_kind() in {"acemusic", "elevenlabs"}
+
+    def _residency_model_id(self) -> Optional[str]:
+        backend = self._get_backend()
+        caps = None
+        get_caps = getattr(backend, "get_capabilities", None)
+        if callable(get_caps):
+            try:
+                caps = get_caps()
+            except Exception:
+                caps = None
+        model_id = getattr(caps, "model_id", None) if caps is not None else None
+        if isinstance(model_id, str) and model_id.strip():
+            return model_id.strip()
+        configured = _owner_cfg(self._owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID")
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+        return None
+
+    def _load_id(self, *, provider: str, model: Optional[str]) -> str:
+        model_s = str(model or "").strip()
+        provider_s = str(provider or "").strip()
+        if not provider_s:
+            return model_s
+        return f"{provider_s}/{model_s}" if model_s else provider_s
+
+    def _record_loaded(
+        self,
+        *,
+        task: Optional[str],
+        resident: bool,
+        source: str,
+        error: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        kind = self._residency_kind()
+        model_id = self._residency_model_id()
+        now = time.time()
+        load_id = self._load_id(provider=kind, model=model_id)
+        with self._state_lock:
+            existing = dict(self._loaded_models.get(load_id, {}))
+            loaded_at = existing.get("loaded_at")
+            if loaded_at is None:
+                loaded_at = now
+            record = {
+                "task": str(task or ""),
+                "provider": kind or None,
+                "model": model_id,
+                "load_id": load_id,
+                "backend_kind": kind or None,
+                "scope": "process",
+                "state": "resident" if resident else "active",
+                "resident": bool(resident),
+                "loaded": True,
+                "unloadable": not self._residency_is_remote(),
+                "source": str(source),
+                "loaded_at": float(loaded_at),
+                "last_used_at": float(now),
+                "error": dict(error) if isinstance(error, dict) else None,
+            }
+            if existing.get("resident"):
+                record["resident"] = True
+                record["state"] = "resident"
+                record["source"] = "explicit_preload"
+            self._loaded_models[load_id] = record
+            return dict(record)
+
+    def _clear_loaded(self, load_id: str) -> Optional[Dict[str, Any]]:
+        with self._state_lock:
+            existing = self._loaded_models.pop(str(load_id or ""), None)
+        return dict(existing) if isinstance(existing, dict) else None
+
+    def load_resident_model(self, request: Any) -> Dict[str, Any]:
+        payload = dict(request) if isinstance(request, dict) else {}
+        task = _normalize_task(payload.get("task")) or "text_to_music"
+        kind = self._residency_kind()
+        if self._residency_is_remote():
+            return {
+                "task": task,
+                "provider": kind or None,
+                "model": self._residency_model_id(),
+                "load_id": self._load_id(provider=kind, model=self._residency_model_id()),
+                "backend_kind": kind or None,
+                "scope": "process",
+                "state": "stateless",
+                "resident": False,
+                "loaded": False,
+                "unloadable": False,
+                "source": "remote_stateless",
+                "loaded_at": None,
+                "last_used_at": None,
+                "error": None,
+            }
+
+        backend = self._get_backend()
+        preload = getattr(backend, "preload", None)
+        try:
+            if callable(preload):
+                preload()
+        except Exception as exc:
+            return self._record_loaded(
+                task=task,
+                resident=False,
+                source="explicit_preload",
+                error={"code": "load_failed", "message": str(exc)},
+            )
+        return self._record_loaded(task=task, resident=True, source="explicit_preload")
+
+    def list_loaded_models(self, filters: Any | None = None) -> List[Dict[str, Any]]:
+        filter_map = dict(filters) if isinstance(filters, dict) else {}
+        wanted_load_id = str(filter_map.get("load_id") or filter_map.get("id") or "").strip() or None
+        wanted_provider = str(filter_map.get("provider") or filter_map.get("backend_kind") or "").strip() or None
+        wanted_model = str(filter_map.get("model") or "").strip() or None
+        wanted_resident = filter_map.get("resident")
+
+        with self._state_lock:
+            records = [dict(item) for item in self._loaded_models.values()]
+
+        out: List[Dict[str, Any]] = []
+        for record in records:
+            if wanted_load_id and str(record.get("load_id") or "") != wanted_load_id:
+                continue
+            if wanted_provider and str(record.get("provider") or "") != wanted_provider:
+                continue
+            if wanted_model and str(record.get("model") or "") != wanted_model:
+                continue
+            if wanted_resident is not None and bool(record.get("resident")) is not bool(wanted_resident):
+                continue
+            out.append(record)
+
+        out.sort(key=lambda item: (str(item.get("provider") or ""), str(item.get("model") or "")))
+        return out
+
+    def list_resident_models(self, filters: Any | None = None) -> List[Dict[str, Any]]:
+        filter_map = dict(filters) if isinstance(filters, dict) else {}
+        filter_map["resident"] = True
+        return self.list_loaded_models(filter_map)
+
+    def unload_resident_model(self, request: Any) -> Dict[str, Any]:
+        payload = dict(request) if isinstance(request, dict) else {}
+        load_id = str(payload.get("load_id") or payload.get("id") or "").strip()
+        provider = str(payload.get("provider") or payload.get("backend_kind") or "").strip()
+        model = str(payload.get("model") or "").strip()
+
+        if not load_id:
+            kind = self._residency_kind()
+            model_id = self._residency_model_id()
+            if provider or model:
+                load_id = self._load_id(provider=(provider or kind), model=(model or model_id))
+            else:
+                load_id = self._load_id(provider=kind, model=model_id)
+
+        existing = None
+        with self._state_lock:
+            existing = dict(self._loaded_models.get(load_id, {})) if load_id in self._loaded_models else None
+
+        if not existing:
+            return {
+                "task": _normalize_task(payload.get("task")) or "text_to_music",
+                "provider": provider or self._residency_kind() or None,
+                "model": model or self._residency_model_id(),
+                "load_id": load_id or None,
+                "backend_kind": provider or self._residency_kind() or None,
+                "scope": "process",
+                "state": "not_loaded",
+                "resident": False,
+                "loaded": False,
+                "unloadable": not self._residency_is_remote(),
+                "source": None,
+                "loaded_at": None,
+                "last_used_at": None,
+                "error": None,
+            }
+
+        backend = self._get_backend()
+        unload = getattr(backend, "unload", None)
+        try:
+            if callable(unload):
+                unload()
+        except Exception as exc:
+            existing["state"] = "failed"
+            existing["resident"] = False
+            existing["loaded"] = True
+            existing["error"] = {"code": "unload_failed", "message": str(exc)}
+            return dict(existing)
+
+        self._clear_loaded(load_id)
+        # Drop cached backend instance so the next call is forced to reload.
+        self._backend = None
+        return {
+            "task": existing.get("task"),
+            "provider": existing.get("provider"),
+            "model": existing.get("model"),
+            "load_id": existing.get("load_id"),
+            "backend_kind": existing.get("backend_kind"),
+            "scope": "process",
+            "state": "unloaded",
+            "resident": False,
+            "loaded": False,
+            "unloadable": bool(existing.get("unloadable", True)),
+            "source": existing.get("source"),
+            "loaded_at": None,
+            "last_used_at": existing.get("last_used_at"),
+            "error": None,
+        }
 
     def _get_backend(self):
         if self._backend is not None:

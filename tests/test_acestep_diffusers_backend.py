@@ -62,6 +62,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
             audio_duration,
             vocal_language,
             num_inference_steps,
+            guidance_scale=7.0,
             shift,
             generator=None,
         ):
@@ -71,6 +72,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
                 "audio_duration": audio_duration,
                 "vocal_language": vocal_language,
                 "num_inference_steps": num_inference_steps,
+                "guidance_scale": guidance_scale,
                 "shift": shift,
                 "generator_device": getattr(generator, "device", None),
                 "generator_seed": getattr(generator, "seed", None),
@@ -98,6 +100,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
             vocal_language="en",
             duration_s=3.0,
             num_inference_steps=8,
+            guidance_scale=4.0,
             seed=42,
         )
     )
@@ -109,6 +112,7 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
     assert calls["call"]["audio_duration"] == 3.0
     assert calls["call"]["vocal_language"] == "en"
     assert calls["call"]["num_inference_steps"] == 8
+    assert calls["call"]["guidance_scale"] == 4.0
     assert calls["call"]["shift"] == 3.0
     assert calls["call"]["generator_device"] == "mps"
     assert calls["call"]["generator_seed"] == 42
@@ -124,14 +128,12 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_rejects_negative_prompt_and_guidance():
+def test_acestep_diffusers_rejects_negative_prompt():
     from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
 
     backend = AceStepDiffusersBackend(config=AceStepDiffusersBackendConfig())
     with pytest.raises(ValueError, match="negative_prompt"):
         backend.generate_audio(AudioGenerationRequest(prompt="x", negative_prompt="noise"))
-    with pytest.raises(ValueError, match="guidance"):
-        backend.generate_audio(AudioGenerationRequest(prompt="x", guidance_scale=3.0))
 
 
 @pytest.mark.unit

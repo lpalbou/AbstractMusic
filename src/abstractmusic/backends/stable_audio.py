@@ -8,6 +8,7 @@ Face, so loading may require `huggingface-cli login` and license acceptance.
 
 from __future__ import annotations
 
+import gc
 import sys
 import types
 from dataclasses import dataclass, replace
@@ -307,6 +308,31 @@ class StableAudioBackend:
         self._model = model
         self._model_config = dict(model_config or {})
         self._device = device
+
+    def unload(self) -> None:
+        """Best-effort: release Stable Audio Open model weights and allocator caches."""
+        self._model = None
+        self._model_config = None
+        self._device = None
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
 
     def _sample_rate(self) -> int:
         cfg = self._model_config or {}

@@ -59,6 +59,18 @@ The plugin capability object exposes AbstractCore-friendly discovery methods:
 `list_provider_models(...)`, `list_operations(task=...)`, and `capability_catalog(task=...)`.
 They use the packaged model capability registry and do not load model weights.
 
+When running under AbstractCore, the capability object also exposes an optional residency surface
+for local backends:
+
+- `load_resident_model(request)`
+- `list_loaded_models(filters=None)`
+- `list_resident_models(filters=None)`
+- `unload_resident_model(request)`
+
+Remote providers remain stateless and do not show up as loaded. Local backends implement best-effort
+`preload()` / `unload()` so AbstractCore can warm and release in-process music engines without
+abusing discovery as a proxy for residency.
+
 Planners that understand song structure can return `composition_plan` in addition to prompt/lyrics.
 Backends that support structured plans, such as `elevenlabs`, translate that provider-neutral plan
 into their native request format. Backends that do not support plans continue using the compiled
@@ -102,8 +114,10 @@ The registry is metadata only. It must not silently change the configured provid
   `ELEVENLABS_API_KEY`, calls `/v1/music` and `/v1/music/plan`, and can request WAV or MP3. Voice
   and text-to-speech routes are intentionally not exposed here.
 - `acestep`: local ACE-Step Diffusers XL Turbo backend alias.
-- `acestep-diffusers`: explicit name for the local ACE-Step Diffusers adapter for
-  `ACE-Step/acestep-v15-xl-turbo-diffusers`.
+- `acestep-diffusers`: local ACE-Step Diffusers adapter for `AceStepPipeline`. Defaults to the
+  official `ACE-Step/acestep-v15-xl-turbo-diffusers` checkpoint, but also supports compatible
+  Diffusers conversions when `model_id` is set (for example, community conversions hosted on
+  Hugging Face).
 - `acestep-v15`: explicit quality-limited ACE-Step v1.5 backend, using vendored model code and
   package-owned orchestration.
 - `diffusers`: generic Diffusers audio backend for compatible audio pipelines.

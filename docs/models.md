@@ -25,6 +25,8 @@ provider-specific model names when exposed by the service.
   external ACE-Step source tree or package. On Apple MPS, AbstractMusic avoids fp16 denoising
   overflow by preferring MPS bfloat16 when supported and MPS float32 otherwise; CPU float32 remains
   the final fallback if MPS returns non-finite audio.
+  The same backend can also target compatible community Diffusers conversions by passing
+  `--model-id` (see below).
 - `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics. This
   path uses vendored ACE-Step model code and package-owned orchestration without an external
   ACE-Step source tree or package, but it is quality-limited after repeated-loop validation
@@ -50,8 +52,6 @@ provider-specific model names when exposed by the service.
 - `stabilityai/stable-audio-3-medium`: gated Stable Audio 3 Medium checkpoint, tracked behind
   `stable-audio-3` but not recommended until Small Music has broader validation. It is GPU-oriented
   and heavier than the Small model.
-- `ACE-Step/acestep-v15-xl-turbo`: raw XL Turbo DiT checkpoint, MIT, heavy advanced variant.
-- `ACE-Step/acestep-v15-xl-sft`: raw XL SFT checkpoint, MIT, heavy quality variant with guidance.
 - `HeartMuLa/HeartMuLa-oss-3B-happy-new-year`: Apache-2.0, lyrics and tag conditioned music
   generation with HeartCodec.
 - `m-a-p/YuE-s1-7B-anneal-en-cot`: Apache-2.0 YuE Stage-1 music model. It is not an
@@ -61,6 +61,21 @@ provider-specific model names when exposed by the service.
   in reviewed metadata.
 - `Dalision/Omni2Sound`: CC BY-NC 4.0 multimodal audio generation, not suitable as a default
   commercial-capable music provider.
+
+## Community ACE-Step Diffusers Conversions
+
+The model registry also tracks a small set of community Diffusers conversions (hosted by Runware)
+so you can test smaller/alternate ACE-Step DiT variants using the same `acestep-diffusers` backend:
+
+- `Runware/acestep-v15-turbo-diffusers`
+- `Runware/acestep-v15-base-diffusers`
+- `Runware/acestep-v15-sft-diffusers`
+- `Runware/acestep-v15-xl-turbo-diffusers`
+- `Runware/acestep-v15-xl-base-diffusers`
+- `Runware/acestep-v15-xl-sft-diffusers`
+
+These are not treated as reviewed or recommended models. Validate prompts, seeds, and quality gates
+locally before using them in production.
 
 ## Precision Rule
 

@@ -45,6 +45,19 @@ class _RemoteCaptureBackend(_CaptureBackend):
         return GeneratedAsset(data=b"remote-audio", mime_type=f"audio/{request.format}", metadata={"backend": "remote"})
 
 
+class _WarmableBackend(_CaptureBackend):
+    def __init__(self):
+        super().__init__()
+        self.preload_calls = 0
+        self.unload_calls = 0
+
+    def preload(self):
+        self.preload_calls += 1
+
+    def unload(self):
+        self.unload_calls += 1
+
+
 class _DummyOwner:
     def __init__(self, config):
         self.config = dict(config)
@@ -610,3 +623,54 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
     assert catalog["providers"]
     assert catalog["models"]
     assert catalog["operations"]
+
+
+@pytest.mark.unit
+def test_capability_residency_load_list_unload_for_local_backend():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    backend = _WarmableBackend()
+
+    owner = _DummyOwner({"music_backend_instance": backend})
+    cap = factory(owner)
+
+    loaded = cap.load_resident_model({"task": "t2m"})
+    assert backend.preload_calls == 1
+    assert loaded["resident"] is True
+    assert loaded["loaded"] is True
+    assert loaded["state"] == "resident"
+
+    listed = cap.list_loaded_models()
+    assert len(listed) == 1
+    assert listed[0]["load_id"] == loaded["load_id"]
+
+    resident = cap.list_resident_models()
+    assert len(resident) == 1
+    assert resident[0]["resident"] is True
+
+    unloaded = cap.unload_resident_model({"load_id": loaded["load_id"]})
+    assert backend.unload_calls == 1
+    assert unloaded["state"] == "unloaded"
+    assert cap.list_loaded_models() == []
+
+
+@pytest.mark.unit
+def test_capability_residency_is_stateless_for_remote_backends():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:acemusic")
+    backend = _WarmableBackend()
+
+    owner = _DummyOwner({"music_backend_instance": backend})
+    cap = factory(owner)
+
+    loaded = cap.load_resident_model({"task": "t2m"})
+    assert loaded["state"] == "stateless"
+    assert loaded["resident"] is False
+    assert loaded["loaded"] is False
+    assert backend.preload_calls == 0

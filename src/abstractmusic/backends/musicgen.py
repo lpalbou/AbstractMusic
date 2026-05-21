@@ -8,6 +8,7 @@ because MusicGen is not a Diffusers pipeline.
 
 from __future__ import annotations
 
+import gc
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence
 
@@ -152,6 +153,31 @@ class MusicGenBackend:
         self._processor = processor
         self._model = model
         self._device = device
+
+    def unload(self) -> None:
+        """Best-effort: release MusicGen weights and allocator caches."""
+        self._processor = None
+        self._model = None
+        self._device = None
+        try:
+            torch = _lazy_import_torch()
+            if hasattr(torch, "cuda") and torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+            mps = getattr(torch, "mps", None)
+            if mps is not None and hasattr(mps, "empty_cache"):
+                try:
+                    mps.empty_cache()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            gc.collect()
+        except Exception:
+            pass
 
     def _sample_rate(self) -> int:
         model = self._model
