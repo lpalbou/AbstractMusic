@@ -13,10 +13,13 @@ def test_music_model_registry_contains_reviewed_models():
     ids = {m.id for m in reg.list_models()}
 
     assert "acemusic/ace-step-api" in ids
+    assert "elevenlabs/music_v1" in ids
     assert "ACE-Step/Ace-Step1.5" in ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in ids
     assert "facebook/musicgen-small" in ids
     assert "stabilityai/stable-audio-open-small" in ids
+    assert "stabilityai/stable-audio-3-small-music" in ids
+    assert "stabilityai/stable-audio-3-medium" in ids
     assert "HeartMuLa/HeartMuLa-oss-3B-happy-new-year" in ids
     assert "m-a-p/YuE-s1-7B-anneal-en-cot" in ids
     assert "LH-Tech-AI/TinyMozart_v2_85M" in ids
@@ -37,6 +40,24 @@ def test_acemusic_registry_metadata_tracks_light_remote_default():
     assert set(spec.output_formats) == {"wav", "mp3", "flac"}
     assert spec.raw["remote"] is True
     assert spec.raw["local"] is False
+
+
+@pytest.mark.unit
+def test_elevenlabs_registry_metadata_tracks_music_only_remote_backend():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("elevenlabs/music_v1")
+
+    assert spec.recommended is True
+    assert spec.backend_kinds[0] == "elevenlabs"
+    assert spec.dependency_extra == "remote"
+    assert spec.supports_lyrics is True
+    assert spec.supports_negative_prompt is True
+    assert spec.supports_guidance_scale is False
+    assert set(spec.output_formats) == {"wav", "mp3"}
+    assert spec.raw["remote"] is True
+    assert spec.raw["local"] is False
+    assert "text-to-speech" in spec.notes
 
 
 @pytest.mark.unit
@@ -97,6 +118,27 @@ def test_stable_audio_registry_metadata():
     assert spec.supports_guidance_scale is True
     assert spec.dependency_extra == "stable-audio"
     assert "Hugging Face access approval" in spec.notes
+
+
+@pytest.mark.unit
+def test_stable_audio3_registry_metadata():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    spec = MusicModelCapabilitiesRegistry().get("stabilityai/stable-audio-3-small-music")
+
+    assert spec.supports_task("text_to_music")
+    assert spec.supports_task("text_to_audio")
+    assert spec.backend_kinds[0] == "stable-audio-3"
+    assert spec.dependency_extra == "stable-audio-3"
+    assert spec.sample_rate_hz == 44100
+    assert spec.max_duration_s == 120
+    assert spec.supports_guidance_scale is True
+    assert spec.supports_lyrics is False
+    assert "AbstractMusic owns the inference runtime" in spec.notes
+
+    medium = MusicModelCapabilitiesRegistry().get("stabilityai/stable-audio-3-medium")
+    assert medium.max_duration_s == 380
+    assert medium.status == "configured-unvalidated-gated-heavy"
 
 
 @pytest.mark.unit
@@ -183,6 +225,7 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
         "all-gpu",
         "musicgen",
         "stable-audio",
+        "stable-audio-3",
         "yue",
     ]:
         assert extra in extras
@@ -193,3 +236,10 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
     assert any(str(dep).startswith("torchaudio") for dep in extras["all-apple"])
     assert any(str(dep).startswith("alias-free-torch") for dep in extras["all-gpu"])
     assert any(str(dep).startswith("vector-quantize-pytorch") for dep in extras["all-gpu"])
+    assert any(str(dep).startswith("transformers>=5.8") for dep in extras["stable-audio-3"])
+    assert not any("stable-audio-3" in str(dep) for dep in extras["stable-audio-3"])
+    assert not any(str(dep).startswith("torchaudio") for dep in extras["stable-audio-3"])
+    assert not any(str(dep).startswith("soundfile") for dep in extras["stable-audio-3"])
+    assert not any(str(dep).startswith("flash-attn") for dep in extras["stable-audio-3"])
+    assert not any(str(dep).startswith("tqdm") for dep in extras["stable-audio-3"])
+    assert not any(str(dep).startswith("packaging") for dep in extras["stable-audio-3"])

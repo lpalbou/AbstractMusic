@@ -2,11 +2,12 @@
 
 ## Current status
 
-AbstractMusic has a thin public manager, a minimal backend protocol, a stdlib-only ACE Music
-remote backend, a generic Diffusers audio backend, a standalone ACE-Step v1.5 backend, an ACE-Step
-Diffusers adapter, and an AbstractCore capability plugin. The standalone ACE-Step path is the only
-ACE-Step v1.5 runtime path in the package and must not call a local ACE-Step source checkout or
-external ACE-Step package.
+AbstractMusic has a thin public manager, a minimal backend protocol, stdlib-only ACE Music and
+ElevenLabs Music remote backends, a generic Diffusers audio backend, a standalone ACE-Step v1.5
+backend, an ACE-Step Diffusers adapter, an internal Stable Audio 3 Small Music spike, and an
+AbstractCore capability plugin. The ACE-Step paths must not call a local ACE-Step source checkout
+or external ACE-Step package, and the Stable Audio 3 path must not import or wrap the upstream
+Stable Audio runtime package.
 
 The repository has the baseline docs, hygiene files, import-light packaging, a model registry, a
 CLI REPL, and a real smoke validation harness. Previous external-runtime experiments are no longer
@@ -14,8 +15,8 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 
 ## Status counts
 
-- Planned: 8
-- Proposed: 1
+- Planned: 9
+- Proposed: 2
 - Completed: 5
 - Deprecated: 2
 - Recurrent: 2
@@ -26,24 +27,28 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 - P0: add a repetition/novelty quality gate before calling ACE-Step output production-quality.
 - P1: add a small MusicGen validation backend so ACE-Step quality can be judged against a known
   small text-to-music baseline.
+- P1: broaden Stable Audio 3.0 Small validation beyond the focused 30-second and 120-second
+  smokes before considering Medium or recommendation status.
 - P1: broaden provider coverage and improve quality metadata with real validation.
 - P2: evaluate optional/non-core model families without polluting the base install.
 
 ## Next recommended work
 
 1. Complete `planned/065_acestep_repetition_quality_gate.md`.
-2. Complete `planned/070_musicgen_small_optional_provider.md`.
-3. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
-4. Complete `planned/030_acestep_diffusers_xl_provider.md`.
-5. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
-6. Complete `planned/055_heartmula_optional_provider.md`.
-7. Complete `planned/060_yue_optional_provider.md`.
-8. Complete `planned/075_stable_audio_open_small_validation.md`.
+2. Complete the broader validation in `planned/0083_stable_audio_3_local_provider_spike.md`.
+3. Complete `planned/070_musicgen_small_optional_provider.md`.
+4. Complete `planned/045_audio_artifact_screening_and_quality_metadata.md`.
+5. Complete `planned/030_acestep_diffusers_xl_provider.md`.
+6. Complete `planned/035_acestep_v15_backend_compatibility_hardening.md`.
+7. Complete `planned/055_heartmula_optional_provider.md`.
+8. Complete `planned/060_yue_optional_provider.md`.
+9. Complete `planned/075_stable_audio_open_small_validation.md`.
 
 ## Planned work
 
 | Priority | Item | Outcome |
 | --- | --- | --- |
+| P1 | `planned/0083_stable_audio_3_local_provider_spike.md` | Broaden Stable Audio 3.0 Small validation after focused 30-second and 120-second implementation smokes, then decide whether Medium should follow. |
 | P1 | `planned/030_acestep_diffusers_xl_provider.md` | Add and validate a dedicated ACE-Step Diffusers provider for the official XL Turbo checkpoint. |
 | P1 | `planned/035_acestep_v15_backend_compatibility_hardening.md` | Stabilize or retire the current custom ACE-Step v1.5 backend with tested dependency bounds. |
 | P1 | `planned/045_audio_artifact_screening_and_quality_metadata.md` | Strengthen artifact screening and make quality validation metadata first-class. |
@@ -68,6 +73,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | Item | Promotion criteria |
 | --- | --- |
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
+| `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
 
 ## Deprecated work
 
@@ -113,3 +119,13 @@ When a planned item is complete:
 - YuE Stage-1 is music-relevant and Apache-2.0, but it is not an end-to-end audio generator by
   itself. A YuE provider needs the Stage-2 and codec/upsampler path before it can satisfy
   AbstractMusic's generation goal.
+- With ACE Music and ElevenLabs Music in the base package, remote coverage is sufficient for now.
+  Future provider work should prioritize local/open-weight generation unless a remote endpoint
+  proves a reusable abstraction needed by local engines.
+- MiniMax documents a `music-2.6-free` API model, but its pricing and access pages still frame
+  music usage around token plans, pay-as-you-go balance, and limited-free quotas. Do not add it as
+  a third remote backend unless a user explicitly wants that provider and accepts the access
+  ambiguity.
+- Stable Audio 3.0 Small now has an internal package-owned text-to-music path that passed focused
+  30-second and 120-second validation runs at 16 steps. It is still a spike, not a recommended
+  default, until broader prompt/seed and GPU validation are recorded.

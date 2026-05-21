@@ -10,6 +10,8 @@ __all__ = [
     "MusicBackend",
     "AceMusicBackend",
     "AceMusicBackendConfig",
+    "ElevenLabsMusicBackend",
+    "ElevenLabsMusicBackendConfig",
     "AceStepV15Backend",
     "AceStepV15BackendConfig",
     "AceStepDiffusersBackend",
@@ -20,6 +22,8 @@ __all__ = [
     "MusicGenBackendConfig",
     "StableAudioBackend",
     "StableAudioBackendConfig",
+    "StableAudio3Backend",
+    "StableAudio3BackendConfig",
 ]
 
 
@@ -28,6 +32,10 @@ def __getattr__(name: str):
         from .acemusic import AceMusicBackend, AceMusicBackendConfig
 
         return AceMusicBackend if name == "AceMusicBackend" else AceMusicBackendConfig
+    if name in {"ElevenLabsMusicBackend", "ElevenLabsMusicBackendConfig"}:
+        from .elevenlabs_music import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
+
+        return ElevenLabsMusicBackend if name == "ElevenLabsMusicBackend" else ElevenLabsMusicBackendConfig
     if name in {"AceStepV15Backend", "AceStepV15BackendConfig"}:
         from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
 
@@ -48,4 +56,8 @@ def __getattr__(name: str):
         from .stable_audio import StableAudioBackend, StableAudioBackendConfig
 
         return StableAudioBackend if name == "StableAudioBackend" else StableAudioBackendConfig
+    if name in {"StableAudio3Backend", "StableAudio3BackendConfig"}:
+        from .stable_audio_3 import StableAudio3Backend, StableAudio3BackendConfig
+
+        return StableAudio3Backend if name == "StableAudio3Backend" else StableAudio3BackendConfig
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

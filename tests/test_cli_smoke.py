@@ -12,6 +12,24 @@ def test_cli_help_does_not_error():
 
 
 @pytest.mark.unit
+def test_cli_prints_clean_error_without_traceback(monkeypatch, capsys):
+    from abstractmusic.cli import main
+    from abstractmusic.errors import AbstractMusicError
+
+    def _boom(args):
+        raise AbstractMusicError("provider unavailable")
+
+    monkeypatch.setattr("abstractmusic.cli._cmd_t2m", _boom)
+
+    code = main(["t2m", "hello"])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert captured.err.strip() == "ERROR: provider unavailable"
+    assert "Traceback" not in captured.err
+
+
+@pytest.mark.unit
 def test_cli_allows_common_flags_after_subcommand():
     # Argparse subparsers normally reject top-level options placed after the subcommand.
     # We intentionally support the natural ordering used in docs:
@@ -60,6 +78,37 @@ def test_cli_accepts_acemusic_remote_aliases_and_formats():
     assert args.backend == "acemusic"
     assert args.format == "mp3"
     assert args.acemusic_base_url == "https://api.example.test"
+
+
+@pytest.mark.unit
+def test_cli_accepts_elevenlabs_music_aliases_and_config():
+    from abstractmusic.cli import build_parser
+
+    args = build_parser().parse_args(
+        [
+            "--engine",
+            "eleven",
+            "t2m",
+            "cinematic instrumental",
+            "--format",
+            "mp3",
+            "--elevenlabs-base-url",
+            "https://api.example.test",
+            "--elevenlabs-model",
+            "music_v1",
+            "--elevenlabs-output-format",
+            "mp3_44100_128",
+            "--composition-mode",
+            "plan",
+        ]
+    )
+
+    assert args.backend == "elevenlabs"
+    assert args.format == "mp3"
+    assert args.elevenlabs_base_url == "https://api.example.test"
+    assert args.elevenlabs_model == "music_v1"
+    assert args.elevenlabs_output_format == "mp3_44100_128"
+    assert args.composition_mode == "plan"
 
 
 @pytest.mark.unit
@@ -222,6 +271,14 @@ def test_cli_accepts_musicgen_and_stable_audio_engines():
     assert args.backend == "stable-audio"
     assert args.cmd == "repl"
 
+    args = build_parser().parse_args(["--engine", "sa3", "t2m", "arcade music", "--duration", "30"])
+    assert args.backend == "stable-audio-3"
+    assert args.cmd == "t2m"
+
+    args = build_parser().parse_args(["repl", "--engine", "stable-audio-3-small-music", "--duration", "30"])
+    assert args.backend == "stable-audio-3"
+    assert args.cmd == "repl"
+
 
 @pytest.mark.unit
 def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsys):
@@ -247,6 +304,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     repl.onecmd("/print-plan on")
     repl.onecmd("/text-planner off")
     repl.onecmd("/format flac")
+    repl.onecmd("/composition-mode plan")
     repl.onecmd("/params")
 
     assert repl.args.backend == "acestep-diffusers"
@@ -266,6 +324,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert repl.args.print_plan is True
     assert repl.args.text_planner == "off"
     assert repl.args.format == "flac"
+    assert repl.args.composition_mode == "plan"
     assert repl._manager is None
     out = capsys.readouterr().out
     assert "engine: acestep-diffusers" in out
@@ -279,6 +338,7 @@ def test_music_repl_switches_engine_and_parameters_without_loading_backend(capsy
     assert "print-plan: on" in out
     assert "text_planner: off" in out
     assert "format: flac" in out
+    assert "composition-mode: plan" in out
 
 
 @pytest.mark.unit

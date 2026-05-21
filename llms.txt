@@ -14,7 +14,7 @@ generation backends, using the CLI/API, integrating with AbstractCore, and relea
 - [docs/api.md](docs/api.md): `MusicManager`, request fields, text planner injection, model registry, and built-in backend kinds.
 - [docs/models.md](docs/models.md): reviewed model metadata, provider status, license notes, and precision rules.
 - [docs/faq.md](docs/faq.md): recurring model, testing, provider, and quantization questions.
-- [docs/troubleshooting.md](docs/troubleshooting.md): common setup, Hugging Face, MPS, repetition, Stable Audio, and release failures.
+- [docs/troubleshooting.md](docs/troubleshooting.md): common setup, Hugging Face, MPS, repetition, Stable Audio, Stable Audio 3, and release failures.
 - [docs/release.md](docs/release.md): version source, local preflight, release rehearsal, PyPI publishing, and GitHub Pages setup.
 
 ## Project Process

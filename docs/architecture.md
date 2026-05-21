@@ -4,7 +4,8 @@ AbstractMusic is organized around a small public contract:
 
 - `MusicManager`: user-facing facade that builds requests and delegates to a backend.
 - `MusicBackend`: provider interface for local or remote-compatible generation engines.
-- `AudioGenerationRequest`: normalized request object for text-to-music/audio.
+- `AudioGenerationRequest`: normalized request object for text-to-music/audio, including optional
+  structured composition plans.
 - `GeneratedAsset`: binary media result with MIME type and metadata.
 - Model capability registry: packaged metadata describing known providers and model constraints.
 
@@ -20,7 +21,10 @@ options should be explicit and documented.
 Text planning is a separate layer from backend generation. `MusicPlanningRequest` captures the
 raw prompt, lyrics, duration, metadata hints, and model/backend context. A planner returns a
 `MusicPromptPlan`; `compile_music_prompt_plan(...)` renders that plan into the deterministic
-prompt/lyrics/metadata contract required by the selected backend.
+prompt/lyrics/metadata contract required by the selected backend. A planner can also provide a
+provider-neutral `MusicCompositionPlan`; compatible backends translate it into their native
+structured request shape, and incompatible backends ignore it rather than learning provider-specific
+planning logic.
 
 The built-in planner is dependency-free and low-confidence by design. AbstractMusic must not import
 AbstractCore or any LLM runtime for planning. Hosts can inject a planner through `MusicManager` or
@@ -43,10 +47,15 @@ packaged model metadata and must not load generation backends.
 Heavy runtime stacks must be imported lazily. The base package stays focused on contracts, manager
 code, artifact helpers, docs, CLI/plugin shells, provider metadata, and stdlib-only remote clients.
 The base default is `acemusic`, which calls a configured hosted ACE Music-compatible API and does
-not install local ML libraries. Local model engines live behind explicit extras such as `acestep`,
-`acestep-v15`, `acestep-diffusers`, `diffusers`, `apple`, `gpu`, `all-apple`, and `all-gpu`.
+not install local ML libraries. The second remote client is `elevenlabs`, which is scoped to
+ElevenLabs Music endpoints only. Local model engines live behind explicit extras such as `acestep`,
+`acestep-v15`, `acestep-diffusers`, `stable-audio-3`, `diffusers`, `apple`, `gpu`,
+`all-apple`, and `all-gpu`.
 The `acestep` extra installs the supported local ACE-Step Diffusers provider; `acestep-v15` is the
 explicit quality-limited vendored v1.5 backend.
+The `stable-audio-3` extra installs only the top-level libraries needed by the internal Small Music
+text-to-music path and intentionally excludes upstream Stable Audio runtime packages, UI, training,
+LoRA, Flash-Attn, and audio codec libraries.
 
 ## Precision Policy
 

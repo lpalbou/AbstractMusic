@@ -80,11 +80,11 @@ local = [
   "torch>=2.0,<3.0.0",
   "torchaudio>=2.0,<3.0.0",
   "diffusers>=0.38.0",
-  "transformers>=4.0,<6.0.0",
+  "transformers>=5.8.0,<6.0.0",
   "accelerate>=0.0",
   "safetensors>=0.0",
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
   "einops-exts>=0.0.4",
   "alias-free-torch>=0.0.6",
   "vector-quantize-pytorch>=1.22.0",
@@ -98,11 +98,11 @@ apple = [
   "torch>=2.0,<3.0.0",
   "torchaudio>=2.0,<3.0.0",
   "diffusers>=0.38.0",
-  "transformers>=4.0,<6.0.0",
+  "transformers>=5.8.0,<6.0.0",
   "accelerate>=0.0",
   "safetensors>=0.0",
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
   "einops-exts>=0.0.4",
   "alias-free-torch>=0.0.6",
   "loguru>=0.7.0",
@@ -119,11 +119,11 @@ gpu = [
   "torch>=2.0,<3.0.0",
   "torchaudio>=2.0,<3.0.0",
   "diffusers>=0.38.0",
-  "transformers>=4.0,<6.0.0",
+  "transformers>=5.8.0,<6.0.0",
   "accelerate>=0.0",
   "safetensors>=0.0",
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
   "einops-exts>=0.0.4",
   "alias-free-torch>=0.0.6",
   "loguru>=0.7.0",
@@ -138,11 +138,11 @@ all-apple = [
   "torch>=2.0,<3.0.0",
   "torchaudio>=2.0,<3.0.0",
   "diffusers>=0.38.0",
-  "transformers>=4.0,<6.0.0",
+  "transformers>=5.8.0,<6.0.0",
   "accelerate>=0.0",
   "safetensors>=0.0",
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
   "einops-exts>=0.0.4",
   "alias-free-torch>=0.0.6",
   "loguru>=0.7.0",
@@ -159,11 +159,11 @@ all-gpu = [
   "torch>=2.0,<3.0.0",
   "torchaudio>=2.0,<3.0.0",
   "diffusers>=0.38.0",
-  "transformers>=4.0,<6.0.0",
+  "transformers>=5.8.0,<6.0.0",
   "accelerate>=0.0",
   "safetensors>=0.0",
-  "huggingface_hub>=0.20.0",
-  "einops>=0.8.1",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
   "einops-exts>=0.0.4",
   "alias-free-torch>=0.0.6",
   "loguru>=0.7.0",
@@ -193,6 +193,14 @@ stable-audio = [
   "alias-free-torch>=0.0.6",
   "vector-quantize-pytorch>=1.22.0",
   "PyWavelets>=1.4.1",
+]
+stable-audio-3 = [
+  "numpy>=1.24.0",
+  "torch>=2.0,<3.0.0",
+  "transformers>=5.8.0,<6.0.0",
+  "safetensors>=0.7.0",
+  "huggingface_hub>=1.7.1",
+  "einops>=0.8.2",
 ]
 heartmula = []
 omni2sound = []
@@ -227,6 +235,10 @@ packages = [
   "abstractmusic.integrations",
   "abstractmusic.vendor",
   "abstractmusic.vendor.acestep_v15_turbo",
+  "abstractmusic.vendor.stable_audio3_min",
+  "abstractmusic.vendor.stable_audio3_min.data",
+  "abstractmusic.vendor.stable_audio3_min.inference",
+  "abstractmusic.vendor.stable_audio3_min.models",
 ]
 
 [tool.setuptools.package-dir]
@@ -234,6 +246,7 @@ packages = [
 
 [tool.setuptools.package-data]
 abstractmusic = ["assets/*.json"]
+"abstractmusic.vendor.stable_audio3_min" = ["LICENSE"]
 
 [tool.setuptools.dynamic]
 version = {attr = "abstractmusic._version.__version__"}

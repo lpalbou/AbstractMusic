@@ -33,6 +33,7 @@ _PLAN_FIELD_NAMES = {
     "generated_fields",
     "confidence",
     "warnings",
+    "composition_plan",
 }
 
 
@@ -100,6 +101,7 @@ class MusicPromptPlan:
     generated_fields: Tuple[str, ...] = ()
     confidence: Optional[float] = None
     warnings: Tuple[str, ...] = ()
+    composition_plan: Optional[Any] = None
     raw: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -115,6 +117,7 @@ class CompiledMusicPromptPlan:
 
     prompt: str
     lyrics: Optional[str]
+    composition_plan: Optional[Any] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -464,7 +467,12 @@ def compile_music_prompt_plan(
     }
     if plan.raw:
         metadata["planner_raw"] = dict(plan.raw)
-    return CompiledMusicPromptPlan(prompt=request_prompt, lyrics=request_lyrics, metadata=metadata)
+    return CompiledMusicPromptPlan(
+        prompt=request_prompt,
+        lyrics=request_lyrics,
+        composition_plan=plan.composition_plan,
+        metadata=metadata,
+    )
 
 
 def _create_deterministic_prompt_plan(request: MusicPlanningRequest) -> MusicPromptPlan:
@@ -597,6 +605,7 @@ def _coerce_music_prompt_plan(value: Any) -> MusicPromptPlan:
         generated_fields=_tuple_str("generated_fields"),
         confidence=confidence_f,
         warnings=_tuple_str("warnings"),
+        composition_plan=raw.get("composition_plan"),
         raw={k: v for k, v in raw.items() if k not in _PLAN_FIELD_NAMES},
     )
 

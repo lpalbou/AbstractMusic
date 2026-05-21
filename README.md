@@ -9,14 +9,21 @@ pip install abstractmusic
 ```
 
 The base package is import-light: contracts, manager, CLI shell, plugin wiring, docs, model
-metadata, and a stdlib-only ACE Music remote backend. It does not install Torch, Diffusers,
-Transformers, or NumPy.
+metadata, and stdlib-only remote music backends for ACE Music and ElevenLabs Music. It does not
+install Torch, Diffusers, Transformers, or NumPy.
 
 Use the base install with a remote API key:
 
 ```bash
 export ACEMUSIC_API_KEY=...
 abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+```
+
+Or select ElevenLabs Music explicitly:
+
+```bash
+export ELEVENLABS_API_KEY=...
+abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
 ```
 
 Install a local runtime profile when you want in-process model generation:
@@ -26,6 +33,7 @@ pip install "abstractmusic[remote]"  # no-op alias; base install already contain
 pip install "abstractmusic[acestep]"  # local ACE-Step Diffusers path
 pip install "abstractmusic[acestep-v15]"  # explicit quality-limited ACE-Step v1.5 path
 pip install "abstractmusic[acestep-diffusers]"
+pip install "abstractmusic[stable-audio-3]"  # internal Stable Audio 3 runtime, gated HF weights
 pip install "abstractmusic[apple]"
 pip install "abstractmusic[gpu]"
 pip install "abstractmusic[all-apple]"  # all supported Apple/MPS local runtime deps
@@ -47,6 +55,18 @@ backend = AceMusicBackend(config=AceMusicBackendConfig(api_key="..."))
 mm = MusicManager(backend=backend)
 wav_bytes = mm.t2m("uplifting synthwave with punchy drums", duration_s=30.0)
 open("out.wav", "wb").write(wav_bytes)
+```
+
+ElevenLabs Music is also available as a music-only remote backend:
+
+```python
+from abstractmusic import MusicManager
+from abstractmusic.backends import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
+
+backend = ElevenLabsMusicBackend(config=ElevenLabsMusicBackendConfig(api_key="..."))
+mm = MusicManager(backend=backend)
+mp3_bytes = mm.t2m("cinematic instrumental synth cue", duration_s=30.0, format="mp3")
+open("out.mp3", "wb").write(mp3_bytes)
 ```
 
 ## Quickstart (local generation)
@@ -95,14 +115,22 @@ open("out.wav", "wb").write(wav_bytes)
 
 - The base default backend is `acemusic`, a remote ACE Music API adapter. It requires
   `ACEMUSIC_API_KEY`. Use `ACEMUSIC_BASE_URL` only when targeting a compatible custom endpoint.
+- The second remote backend is `elevenlabs`, which calls only ElevenLabs Music endpoints and
+  requires `ELEVENLABS_API_KEY`. Use AbstractVoice, not AbstractMusic, for ElevenLabs voice/TTS.
 - Audio output baseline is **WAV** (no external codecs required). The remote ACE Music backend can
   also request MP3 or FLAC.
 - Local model weights are resolved through the default Hugging Face cache on first use (same workflow as Diffusers-based vision).
 - Local `model_id` selectors must be Hugging Face repo ids. Local checkpoint directories and custom cache-dir overrides are intentionally not supported.
 - The local ACE-Step path is `acestep` / `acestep-diffusers`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
 - `acestep-v15` remains explicit and quality-limited after repeated-loop validation failures.
-- `musicgen` and `stable-audio` are optional small-model comparison backends; both are non-commercial and not default providers.
+- `musicgen`, `stable-audio`, and `stable-audio-3` are optional local comparison/generation
+  backends; they are not default providers.
 - For Stable Audio Open Small, install `stable-audio-tools` with `--no-deps` after `abstractmusic[stable-audio]`; AbstractMusic avoids the upstream package's UI/training dependency chain and owns the minimal inference loop.
+- `stable-audio-3` uses an AbstractMusic-owned internal inference subset with Hugging Face
+  weights/configs. It does not import the upstream `stable_audio_3` package or require a local
+  Stable Audio checkout. Model terms must be accepted on Hugging Face. The current implementation
+  has passed focused 30-second and 120-second Small Music validation runs; broader prompt/seed and
+  GPU validation are still required before it is marked recommended.
 - The standalone `acestep-v15` backend vendors the checkpoint’s custom Transformers model code into `abstractmusic` so we do **not** use `trust_remote_code` there.
 - Known model/provider metadata is packaged in `src/abstractmusic/assets/music_model_capabilities.json`.
   See `docs/models.md` for the reviewed model list and precision policy.
@@ -118,6 +146,8 @@ After installation, `abstractmusic` provides a small CLI:
 abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
 abstractmusic --backend acemusic t2m "heroic fantasy epic music" --out out.wav --duration 30
 abstractmusic --backend acemusic t2m "upbeat pop song" --lyrics auto --format mp3 --out out.mp3 --duration 30
+abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
+abstractmusic --backend elevenlabs t2m "upbeat pop song" --lyrics auto --composition-mode plan --format mp3 --out out.mp3 --duration 30
 
 # One-shot local generation
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
@@ -125,6 +155,7 @@ abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wa
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
+abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
 
 # Richer local conditioning for ACE-Step
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
@@ -173,7 +204,9 @@ Host applications can inject a smarter planner without making AbstractMusic depe
 `request_dict`. In AbstractCore plugin mode the same hook is exposed through owner config keys
 `music_text_planner`, `music_text_planner_instance`, or `music_text_planner_factory`. The compiled
 plan is then applied deterministically per backend, and planner provenance is stored in output
-metadata.
+metadata. Planners may also return `composition_plan`; compatible backends such as `elevenlabs`
+translate it into native structured music plans, while other backends continue using the compiled
+prompt and lyrics.
 
 When AbstractMusic is hosted by AbstractCore, it can also consume a narrow host text-generation
 service structurally if one is supplied by the host context or config. The service must expose only
@@ -188,10 +221,15 @@ metadata. These methods are import-light and must not instantiate model runtimes
 
 - The default base backend calls the configured ACE Music remote API. Check the remote provider's
   terms for generated-output rights and provider-side model licensing.
+- The `elevenlabs` backend calls ElevenLabs Music only. ElevenLabs voice/TTS belongs in
+  AbstractVoice. ElevenLabs Music API access may require a paid Music-enabled account tier.
 - The local ACE-Step example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.
 - The vendored standalone ACE-Step model code files carry **Apache-2.0** headers (both permissive).
 - `facebook/musicgen-small` is exposed through `--backend musicgen`; its model weights are **CC BY-NC 4.0**, so it is a non-commercial validation backend.
 - `stabilityai/stable-audio-open-small` is exposed through `--backend stable-audio`; it is gated on Hugging Face and uses the **Stability AI Community License**.
+- `stabilityai/stable-audio-3-small-music` is exposed through `--backend stable-audio-3`;
+  it is gated on Hugging Face, uses the **Stability AI Community License** plus text-encoder
+  terms, and runs through AbstractMusic-owned internal runtime code.
 - If you switch to `--backend diffusers`, **model licenses vary** by checkpoint. Choose a model compatible with your intended usage.
 
 ## CI/CD

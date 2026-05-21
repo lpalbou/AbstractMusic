@@ -2,6 +2,27 @@
 
 All notable changes to AbstractMusic will be documented in this file.
 
+## [Unreleased]
+
+No unreleased changes.
+
+## [0.1.5] - 2026-05-21
+
+### Added
+
+- Added a stdlib-only `elevenlabs` remote backend scoped to ElevenLabs Music endpoints, with
+  composition-plan request support and AbstractCore plugin registration.
+- Added an explicit `stable-audio-3` local backend for `stabilityai/stable-audio-3-small-music`
+  using AbstractMusic-owned runtime code and Hugging Face weights/configs only.
+
+### Changed
+
+- Added a provider-neutral `MusicCompositionPlan` request path so host text planners can hand
+  structured music intent to compatible backends without coupling planning to transport code.
+- Kept Stable Audio 3 behind its own optional extra and excluded upstream Stable Audio runtime
+  packages, Flash-Attn, audio codec libraries, UI, training, LoRA, and local-checkout paths from
+  that minimal dependency profile.
+
 ## [0.1.4] - 2026-05-21
 
 ### Added

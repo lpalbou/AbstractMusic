@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import cmd
+import json
 import os
 import shlex
 import sys
@@ -18,6 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .errors import AbstractMusicError
 from .huggingface import require_hf_repo_id
 from .prompt_planner import MusicPlanningRequest, compile_music_prompt_plan, create_music_prompt_plan
 
@@ -25,7 +27,16 @@ if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "Y
     os.environ["DIFFUSERS_SLOW_IMPORT"] = "0"
 
 
-SUPPORTED_BACKENDS = ("acemusic", "acestep-diffusers", "acestep-v15", "diffusers", "musicgen", "stable-audio")
+SUPPORTED_BACKENDS = (
+    "acemusic",
+    "elevenlabs",
+    "acestep-diffusers",
+    "acestep-v15",
+    "diffusers",
+    "musicgen",
+    "stable-audio",
+    "stable-audio-3",
+)
 DEFAULT_BACKEND = "acemusic"
 BACKEND_ALIASES = {
     "remote": "acemusic",
@@ -34,6 +45,12 @@ BACKEND_ALIASES = {
     "ace_music": "acemusic",
     "acemusic-api": "acemusic",
     "aceapi": "acemusic",
+    "eleven": "elevenlabs",
+    "11labs": "elevenlabs",
+    "elevenlabs-music": "elevenlabs",
+    "eleven-music": "elevenlabs",
+    "eleven_labs": "elevenlabs",
+    "11labs-music": "elevenlabs",
     "acestep": "acestep-diffusers",
     "ace": "acestep-diffusers",
     "ace-step": "acestep-diffusers",
@@ -56,6 +73,12 @@ BACKEND_ALIASES = {
     "stable": "stable-audio",
     "stableaudio": "stable-audio",
     "stable-audio-open-small": "stable-audio",
+    "sa3": "stable-audio-3",
+    "stableaudio3": "stable-audio-3",
+    "stable-audio3": "stable-audio-3",
+    "stable-audio-3-small": "stable-audio-3",
+    "stable-audio-3-small-music": "stable-audio-3",
+    "stable-audio-3-medium": "stable-audio-3",
     "hf": "diffusers",
     "generic": "diffusers",
 }
@@ -138,6 +161,14 @@ def _acemusic_default_api_key() -> Optional[str]:
     return _env("ACEMUSIC_API_KEY")
 
 
+def _elevenlabs_default_base_url() -> str:
+    return _env("ELEVENLABS_BASE_URL") or "https://api.elevenlabs.io"
+
+
+def _elevenlabs_default_api_key() -> Optional[str]:
+    return _env("ELEVENLABS_API_KEY")
+
+
 def _configure_mps_env(args: argparse.Namespace) -> None:
     backend_kind = str(getattr(args, "backend", "acestep-v15") or "acestep-v15").strip().lower()
     if backend_kind != "acestep-v15":
@@ -188,7 +219,8 @@ def build_parser() -> argparse.ArgumentParser:
             else default_suppress,
             help=(
                 "Generation engine/backend (acemusic|acestep|acestep-v15|acestep-diffusers|"
-                "diffusers|musicgen|stable-audio; aliases: remote, ace-music, ace, xl, v15, hf). "
+                "elevenlabs|diffusers|musicgen|stable-audio|stable-audio-3; aliases: remote, "
+                "ace-music, eleven, 11labs, ace, xl, v15, sa3, hf). "
                 "Default: acemusic."
             ),
         )
@@ -200,7 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Local checkpoint paths are rejected; weights must come from the default Hugging Face cache. "
             "Diffusers: any Diffusers audio checkpoint id (license varies). "
             "ACE-Step: ACE-Step/Ace-Step1.5. ACE-Step Diffusers: ACE-Step/acestep-v15-xl-turbo-diffusers. "
-            "MusicGen: facebook/musicgen-small. Stable Audio: stabilityai/stable-audio-open-small.",
+            "MusicGen: facebook/musicgen-small. Stable Audio Open: stabilityai/stable-audio-open-small. "
+            "Stable Audio 3: stabilityai/stable-audio-3-small-music.",
         )
         parser.add_argument(
             "--acemusic-base-url",
@@ -213,6 +246,43 @@ def build_parser() -> argparse.ArgumentParser:
             dest="acemusic_api_key",
             default=_acemusic_default_api_key() if use_defaults else default_suppress,
             help="ACE Music API key, or set $ACEMUSIC_API_KEY.",
+        )
+        parser.add_argument(
+            "--elevenlabs-base-url",
+            dest="elevenlabs_base_url",
+            default=_elevenlabs_default_base_url() if use_defaults else default_suppress,
+            help="ElevenLabs API base URL, or set $ELEVENLABS_BASE_URL. Default: https://api.elevenlabs.io.",
+        )
+        parser.add_argument(
+            "--elevenlabs-api-key",
+            dest="elevenlabs_api_key",
+            default=_elevenlabs_default_api_key() if use_defaults else default_suppress,
+            help="ElevenLabs API key, or set $ELEVENLABS_API_KEY.",
+        )
+        parser.add_argument(
+            "--elevenlabs-model",
+            dest="elevenlabs_model",
+            default=_env("ELEVENLABS_MUSIC_MODEL", "music_v1") if use_defaults else default_suppress,
+            help="ElevenLabs Music model id. Default: music_v1.",
+        )
+        parser.add_argument(
+            "--elevenlabs-output-format",
+            dest="elevenlabs_output_format",
+            default=_env("ELEVENLABS_MUSIC_OUTPUT_FORMAT") if use_defaults else default_suppress,
+            help="Optional ElevenLabs native output_format override, e.g. mp3_44100_128.",
+        )
+        parser.add_argument(
+            "--composition-plan",
+            dest="composition_plan",
+            default=None if use_defaults else default_suppress,
+            help="Optional JSON composition plan path for backends that support structured music plans.",
+        )
+        parser.add_argument(
+            "--composition-mode",
+            dest="composition_mode",
+            choices=("auto", "prompt", "plan"),
+            default=_env("ABSTRACTMUSIC_COMPOSITION_MODE", "auto") if use_defaults else default_suppress,
+            help="Structured composition routing for capable remote backends. Default: auto.",
         )
         parser.add_argument(
             "--revision",
@@ -489,7 +559,7 @@ def _make_manager_from_args(args: argparse.Namespace):
 
     backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     model_id = str(getattr(args, "model_id", "") or "").strip()
-    if backend_kind != "acemusic" and model_id:
+    if backend_kind not in {"acemusic", "elevenlabs"} and model_id:
         try:
             model_id = require_hf_repo_id(model_id, field_name="--model-id / ABSTRACTMUSIC_MODEL_ID")
         except ValueError as e:
@@ -505,6 +575,19 @@ def _make_manager_from_args(args: argparse.Namespace):
         backend = AceMusicBackend(config=cfg)
         return MusicManager(backend=backend)
 
+    if backend_kind == "elevenlabs":
+        from .backends.elevenlabs_music import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
+
+        cfg = ElevenLabsMusicBackendConfig(
+            base_url=str(getattr(args, "elevenlabs_base_url", None) or _elevenlabs_default_base_url()),
+            api_key=getattr(args, "elevenlabs_api_key", None) or _elevenlabs_default_api_key(),
+            model=str(getattr(args, "elevenlabs_model", None) or "music_v1"),
+            output_format=str(getattr(args, "elevenlabs_output_format", "") or "").strip() or None,
+            composition_mode=str(getattr(args, "composition_mode", "auto") or "auto"),
+        )
+        backend = ElevenLabsMusicBackend(config=cfg)
+        return MusicManager(backend=backend)
+
     if backend_kind == "acestep-diffusers":
         from .backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
 
@@ -514,7 +597,7 @@ def _make_manager_from_args(args: argparse.Namespace):
             model_id=model_id,
             device=str(getattr(args, "device", "auto") or "auto"),
             torch_dtype=str(getattr(args, "dtype", "auto") or "auto"),
-            num_inference_steps=int(getattr(args, "steps", None) or 8),
+            num_inference_steps=int(getattr(args, "steps", None) or 16),
             duration_s=float(getattr(args, "duration", 10.0)),
             guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else None,
             shift=float(getattr(args, "shift")) if getattr(args, "shift", None) is not None else 3.0,
@@ -567,6 +650,22 @@ def _make_manager_from_args(args: argparse.Namespace):
             guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 1.0,
         )
         backend = StableAudioBackend(config=cfg)
+        return MusicManager(backend=backend)
+
+    if backend_kind == "stable-audio-3":
+        from .backends.stable_audio_3 import StableAudio3Backend, StableAudio3BackendConfig
+
+        if not model_id:
+            model_id = "stabilityai/stable-audio-3-small-music"
+        cfg = StableAudio3BackendConfig(
+            model_id=model_id,
+            device=str(getattr(args, "device", "auto") or "auto"),
+            torch_dtype=str(getattr(args, "dtype", "auto") or "auto"),
+            duration_s=float(getattr(args, "duration", 30.0)),
+            num_inference_steps=int(getattr(args, "steps", None) or 8),
+            guidance_scale=float(getattr(args, "guidance_scale")) if getattr(args, "guidance_scale", None) is not None else 1.0,
+        )
+        backend = StableAudio3Backend(config=cfg)
         return MusicManager(backend=backend)
 
     if backend_kind == "acestep-v15":
@@ -628,7 +727,21 @@ def _make_manager_from_args(args: argparse.Namespace):
 
 
 def _native_lyrics_supported(backend_kind: str) -> bool:
-    return str(backend_kind or "").strip().lower() in {"acemusic", "acestep-diffusers", "acestep-v15"}
+    return str(backend_kind or "").strip().lower() in {"acemusic", "elevenlabs", "acestep-diffusers", "acestep-v15"}
+
+
+def _load_composition_plan(path_value: Optional[str]) -> Optional[dict[str, Any]]:
+    text = str(path_value or "").strip()
+    if not text:
+        return None
+    path = Path(text).expanduser()
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"Could not read --composition-plan JSON from {path}: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise SystemExit("--composition-plan must point to a JSON object.")
+    return dict(parsed)
 
 
 def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Optional[str]) -> tuple[str, Optional[str], dict[str, Any]]:
@@ -690,6 +803,8 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
         negative_prompt=args.negative,
         lyrics=lyrics,
         vocal_language=plan_meta["vocal_language"],
+        composition_plan=_load_composition_plan(getattr(args, "composition_plan", None)),
+        composition_mode=getattr(args, "composition_mode", "auto"),
         bpm=plan_meta["bpm"],
         keyscale=plan_meta["keyscale"],
         timesignature=plan_meta["timesignature"],
@@ -869,6 +984,8 @@ class MusicREPL(cmd.Cmd):
             negative_prompt=getattr(self.args, "negative", None),
             lyrics=request_lyrics,
             vocal_language=plan_meta["vocal_language"],
+            composition_plan=_load_composition_plan(getattr(self.args, "composition_plan", None)),
+            composition_mode=getattr(self.args, "composition_mode", "auto"),
             bpm=plan_meta["bpm"],
             keyscale=plan_meta["keyscale"],
             timesignature=plan_meta["timesignature"],
@@ -900,9 +1017,10 @@ class MusicREPL(cmd.Cmd):
         print("  /prompt [text|clear]     Show, set, or clear the session prompt")
         print("  /run                     Generate from the current prompt")
         print("  /generate [prompt]       Generate from a prompt; bare prompt also works")
-        print("  /engine [name]           Show or set engine: acemusic, acestep, acestep-v15, xl, diffusers, musicgen, stable-audio")
+        print("  /engine [name]           Show or set engine: acemusic, elevenlabs, acestep, xl, diffusers, musicgen, stable-audio, stable-audio-3")
         print("  /model [id|clear]        Show or set model id")
         print("  /format [wav|mp3|flac]   Show or set output format")
+        print("  /composition-mode [auto|prompt|plan]")
         print("  /lm-backend [auto|cuda|xpu|mps|cpu]")
         print("  /device [auto|mps|cuda|cpu]")
         print("  /dtype [auto|float16|bfloat16|float32]")
@@ -1018,6 +1136,17 @@ class MusicREPL(cmd.Cmd):
             return
         setattr(self.args, "format", value)
         print(f"format: {value}")
+
+    def do_composition_mode(self, arg: str) -> None:
+        value = str(arg or "").strip().lower()
+        if not value:
+            print(str(getattr(self.args, "composition_mode", "auto") or "auto"))
+            return
+        if value not in {"auto", "prompt", "plan"}:
+            print("Usage: /composition-mode [auto|prompt|plan]")
+            return
+        setattr(self.args, "composition_mode", value)
+        print(f"composition-mode: {value}")
 
     def do_lm_backend(self, arg: str) -> None:
         value = str(arg or "").strip()
@@ -1233,10 +1362,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
     _configure_mps_env(args)
 
-    if args.cmd == "t2m":
-        return _cmd_t2m(args)
-    if args.cmd == "repl":
-        return _cmd_repl(args)
+    try:
+        if args.cmd == "t2m":
+            return _cmd_t2m(args)
+        if args.cmd == "repl":
+            return _cmd_repl(args)
+    except AbstractMusicError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     raise SystemExit(f"Unknown command: {args.cmd}")
 
 

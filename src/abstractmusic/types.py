@@ -54,6 +54,51 @@ class GeneratedAsset:
 
 
 @dataclass(frozen=True)
+class MusicSectionPlan:
+    """Provider-neutral description of one musical section."""
+
+    name: str
+    duration_ms: Optional[int] = None
+    positive_styles: Sequence[str] = field(default_factory=tuple)
+    negative_styles: Sequence[str] = field(default_factory=tuple)
+    lines: Sequence[str] = field(default_factory=tuple)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "duration_ms": self.duration_ms,
+            "positive_styles": list(self.positive_styles),
+            "negative_styles": list(self.negative_styles),
+            "lines": list(self.lines),
+        }
+
+
+@dataclass(frozen=True)
+class MusicCompositionPlan:
+    """Provider-neutral structured music plan.
+
+    Backends translate this into their native request shape. This keeps the
+    planning intelligence separate from provider-specific transport details.
+    """
+
+    positive_styles: Sequence[str] = field(default_factory=tuple)
+    negative_styles: Sequence[str] = field(default_factory=tuple)
+    sections: Sequence[MusicSectionPlan] = field(default_factory=tuple)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "positive_styles": list(self.positive_styles),
+            "negative_styles": list(self.negative_styles),
+            "sections": [
+                section.to_dict() if hasattr(section, "to_dict") else dict(section)  # type: ignore[arg-type]
+                for section in self.sections
+            ],
+            "metadata": dict(self.metadata),
+        }
+
+
+@dataclass(frozen=True)
 class AudioGenerationRequest:
     """Text-to-audio request contract."""
 
@@ -67,5 +112,6 @@ class AudioGenerationRequest:
     seed: Optional[int] = None
     format: str = "wav"
     sample_rate: Optional[int] = None
+    composition_plan: Optional[Any] = None
     # Backend-specific passthrough.
     extra: Dict[str, Any] = field(default_factory=dict)

@@ -5,6 +5,7 @@ from abstractmusic.backends.acestep_v15 import AceStepV15BackendConfig
 from abstractmusic.backends.diffusers_audio import DiffusersAudioBackendConfig
 from abstractmusic.backends.musicgen import MusicGenBackendConfig
 from abstractmusic.backends.stable_audio import StableAudioBackendConfig
+from abstractmusic.backends.stable_audio_3 import StableAudio3BackendConfig
 
 
 @pytest.mark.unit
@@ -26,6 +27,10 @@ from abstractmusic.backends.stable_audio import StableAudioBackendConfig
         pytest.param(
             lambda: StableAudioBackendConfig(model_id="./local-model"),
             id="stable-audio",
+        ),
+        pytest.param(
+            lambda: StableAudio3BackendConfig(model_id="./local-model"),
+            id="stable-audio-3",
         ),
         pytest.param(
             lambda: AceStepV15BackendConfig(repo_id="./local-model"),

@@ -134,6 +134,7 @@ class MusicManager:
         seed = kwargs.pop("seed", None)
         output_format = str(kwargs.pop("format", "wav") or "wav")
         sample_rate = kwargs.pop("sample_rate", None)
+        composition_plan = kwargs.pop("composition_plan", None)
 
         if planning_enabled:
             try:
@@ -164,6 +165,8 @@ class MusicManager:
             )
             prompt = compiled.prompt
             lyrics = compiled.lyrics
+            if composition_plan is None:
+                composition_plan = compiled.composition_plan
             vocal_language = compiled.metadata.get("vocal_language")
             for key in ("bpm", "keyscale", "timesignature"):
                 value = compiled.metadata.get(key)
@@ -185,6 +188,7 @@ class MusicManager:
             seed=seed,
             format=output_format,
             sample_rate=sample_rate,
+            composition_plan=composition_plan,
             extra=dict(kwargs),
         )
         self._require_model_support(task)

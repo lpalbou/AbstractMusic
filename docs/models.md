@@ -15,6 +15,10 @@ provider-specific model names when exposed by the service.
 - `acemusic/ace-step-api`: recommended lightweight remote backend through `acemusic`, text-to-music
   with optional lyrics. It uses the configured ACE Music hosted API and requires an API key;
   licensing and commercial terms are provider-side.
+- `elevenlabs/music_v1`: recommended lightweight remote backend through `elevenlabs`, text-to-music
+  with optional lyrics and composition plans. It calls only ElevenLabs Music endpoints; voice and
+  text-to-speech belong in AbstractVoice. Live use may require a paid Music-enabled ElevenLabs
+  account tier.
 - `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the local `acestep` /
   `acestep-diffusers` local backend, MIT, text-to-music with lyrics. This path uses Diffusers
   AceStepPipeline, Hugging Face checkpoint files, and package-owned orchestration without an
@@ -36,6 +40,16 @@ provider-specific model names when exposed by the service.
   License, short 11-second clips. It is configured as the optional `stable-audio` backend and is
   interesting for Apple/Arm-friendly short clips and sound effects, but not a strong default music
   candidate. Hugging Face access approval is required before weights can be downloaded.
+- `stabilityai/stable-audio-3-small-music`: gated Stable Audio 3 Small Music checkpoint, Stability
+  AI Community License plus text-encoder terms, 44.1 kHz stereo, up to 120 seconds. It is exposed
+  through `--backend stable-audio-3` using AbstractMusic-owned internal runtime code and Hugging
+  Face weights/configs only. Initial scope is text-to-music; LoRA, inpainting, continuation,
+  audio-to-audio, CoreML/TFLite, and TensorRT are deferred. It has passed focused 30-second and
+  120-second local validation runs at 16 steps, but it is not recommended until broader
+  prompt/seed and GPU validation are complete.
+- `stabilityai/stable-audio-3-medium`: gated Stable Audio 3 Medium checkpoint, tracked behind
+  `stable-audio-3` but not recommended until Small Music has broader validation. It is GPU-oriented
+  and heavier than the Small model.
 - `ACE-Step/acestep-v15-xl-turbo`: raw XL Turbo DiT checkpoint, MIT, heavy advanced variant.
 - `ACE-Step/acestep-v15-xl-sft`: raw XL SFT checkpoint, MIT, heavy quality variant with guidance.
 - `HeartMuLa/HeartMuLa-oss-3B-happy-new-year`: Apache-2.0, lyrics and tag conditioned music

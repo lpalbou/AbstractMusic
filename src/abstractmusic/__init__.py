@@ -15,9 +15,12 @@ if os.environ.get("DIFFUSERS_SLOW_IMPORT", "").strip().upper() in {"1", "ON", "Y
 from ._version import __version__
 from .model_capabilities import MusicModelCapabilitiesRegistry
 from .music_manager import MusicManager
+from .types import MusicCompositionPlan, MusicSectionPlan
 
 __all__ = [
     "__version__",
     "MusicManager",
     "MusicModelCapabilitiesRegistry",
+    "MusicCompositionPlan",
+    "MusicSectionPlan",
 ]

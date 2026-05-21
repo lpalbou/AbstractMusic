@@ -6,12 +6,19 @@
 pip install abstractmusic
 ```
 
-The base package includes the stdlib-only ACE Music remote backend and no local ML runtime stack.
-Set a remote API key before using the default CLI backend:
+The base package includes stdlib-only ACE Music and ElevenLabs Music remote backends and no local
+ML runtime stack. Set a remote API key before using the default CLI backend:
 
 ```bash
 export ACEMUSIC_API_KEY=...
 abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
+```
+
+ElevenLabs Music is explicit and music-only:
+
+```bash
+export ELEVENLABS_API_KEY=...
+abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
 ```
 
 Install a local runtime profile when you want in-process generation:
@@ -25,13 +32,20 @@ pip install "abstractmusic[all-apple]"
 pip install "abstractmusic[all-gpu]"
 pip install "abstractmusic[musicgen]"
 pip install "abstractmusic[stable-audio]"
-pip install --no-deps stable-audio-tools==0.0.19
+pip install --no-deps stable-audio-tools==0.0.19  # old stable-audio backend only
+pip install "abstractmusic[stable-audio-3]"
 ```
 
 The extra `stable-audio` intentionally avoids the full `stable-audio-tools` dependency graph
 because the upstream package pulls UI/training dependencies and pins packages that do not install
 cleanly on Python 3.12. Install `stable-audio-tools` with `--no-deps`; AbstractMusic provides the
 minimal inference loop it needs.
+
+The `stable-audio-3` extra installs only the top-level runtime libraries needed by
+AbstractMusic's internal Stable Audio 3 text-to-music path: Torch, Transformers, Safetensors,
+Hugging Face Hub, NumPy, Einops, and Packaging. It does not install or import the upstream
+`stable_audio_3` package, `stable-audio-tools`, UI, training, LoRA, CoreML/TFLite, or
+Flash-Attention dependencies.
 
 ## Generate Music
 
@@ -45,6 +59,18 @@ wav_bytes = music.t2m("uplifting synthwave with punchy drums", duration_s=30.0)
 open("out.wav", "wb").write(wav_bytes)
 ```
 
+For ElevenLabs Music:
+
+```python
+from abstractmusic import MusicManager
+from abstractmusic.backends import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
+
+backend = ElevenLabsMusicBackend(config=ElevenLabsMusicBackendConfig(api_key="..."))
+music = MusicManager(backend=backend)
+mp3_bytes = music.t2m("cinematic instrumental synth cue", duration_s=30.0, format="mp3")
+open("out.mp3", "wb").write(mp3_bytes)
+```
+
 Generated WAV files should be treated as artifacts, not source files.
 
 ## CLI
@@ -52,11 +78,14 @@ Generated WAV files should be treated as artifacts, not source files.
 ```bash
 abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
 abstractmusic --backend acemusic t2m "ambient lo-fi study music" --format mp3 --out out.mp3 --duration 30
+abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
+abstractmusic --backend elevenlabs t2m "upbeat pop song" --lyrics auto --composition-mode plan --format mp3 --out out.mp3 --duration 30
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
+abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
 abstractmusic --backend acestep t2m "heroic fantasy epic music" --enhance-prompt --auto-lyrics --print-plan --out out.wav --duration 30
 abstractmusic --backend acestep t2m "heroic fantasy epic instrumental music" --duration 120 --instrumental --print-plan --out out.wav
 abstractmusic --backend acestep t2m "raw prompt only" --text-planner off --out out.wav --duration 30
@@ -104,12 +133,14 @@ bright melodic synth pop loop with steady drums
 /exit
 ```
 
-Engines currently exposed through the unified CLI are `acemusic`, `acestep`, `acestep-diffusers`,
-`acestep-v15`, `diffusers`, `musicgen`, and `stable-audio`. `acemusic` is the default lightweight
-remote backend and accepts aliases such as `remote` and `ace-music`. `acestep`
-and `ace` are aliases for the validated `acestep-diffusers` backend. `musicgen` is a small
+Engines currently exposed through the unified CLI are `acemusic`, `elevenlabs`, `acestep`,
+`acestep-diffusers`, `acestep-v15`, `diffusers`, `musicgen`, `stable-audio`, and
+`stable-audio-3`. `acemusic` is the default lightweight remote backend and accepts aliases such as `remote` and `ace-music`.
+`elevenlabs` accepts aliases such as `eleven` and `11labs` and only uses ElevenLabs Music APIs.
+`acestep` and `ace` are aliases for the validated `acestep-diffusers` backend. `musicgen` is a small
 non-commercial validation backend. `stable-audio` is gated on Hugging Face and supports short
-clips up to 11 seconds.
+clips up to 11 seconds. `stable-audio-3` targets `stabilityai/stable-audio-3-small-music` through
+AbstractMusic-owned internal runtime code and currently supports text-to-music only.
 
 The local ACE-Step backend is package-owned: it uses Diffusers AceStepPipeline, Hugging Face
 weights, and AbstractMusic orchestration without an external ACE-Step source tree. The explicit

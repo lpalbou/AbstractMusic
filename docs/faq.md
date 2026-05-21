@@ -13,12 +13,21 @@ Turbo through `acestep` / `acestep-diffusers` is the supported Apple/GPU path th
 current 30-second reference-floor smoke. The explicit `acestep-v15` backend uses vendored model
 code but remains quality-limited after repeated-loop validation failures.
 
+`elevenlabs` is the second supported remote backend, but it is explicit rather than the default.
+Two remote endpoints are enough for the lightweight package profile; new provider work should now
+focus on local/open-weight engines unless a remote endpoint unlocks a missing abstraction.
+
 ## Does AbstractMusic use Suno, OpenAI, or Anthropic by default?
 
 No. OpenAI exposes speech/audio APIs but not a text-to-music endpoint suited to this backend.
 Anthropic does not expose music generation. Suno has a consumer music product, but the public API
 surface found during review is third-party or unofficial, so it is not a default backend. A Suno
 adapter can be added later if there is an official, stable, documented API contract.
+
+## Does the ElevenLabs backend include voice?
+
+No. AbstractMusic calls only ElevenLabs Music endpoints. Voice, text-to-speech, speech-to-speech,
+and voice cloning belong in AbstractVoice.
 
 ## Can HeartMuLa generate music?
 

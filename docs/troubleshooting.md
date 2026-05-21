@@ -16,6 +16,17 @@ abstractmusic t2m "ambient lo-fi study music" --out out.wav --duration 30
 If you use a compatible proxy or self-hosted endpoint, set `ACEMUSIC_BASE_URL` or pass
 `--acemusic-base-url`.
 
+## ElevenLabs Music returns `limited_access` or HTTP 402
+
+The `elevenlabs` backend uses `ELEVENLABS_API_KEY` and only calls ElevenLabs Music endpoints.
+If live generation returns HTTP 402 with `limited_access`, the key authenticated but the account
+tier does not have Music API access. Upgrade to a Music-enabled paid plan or use another backend:
+
+```bash
+export ELEVENLABS_API_KEY=...
+abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
+```
+
 ## Local generation fails with missing packages
 
 The base package is import-light and does not install heavy model runtimes. Install the backend
@@ -94,6 +105,21 @@ installed without its full dependency chain:
 pip install "abstractmusic[stable-audio]"
 pip install --no-deps stable-audio-tools==0.0.19
 ```
+
+## Stable Audio 3 cannot download weights
+
+`stabilityai/stable-audio-3-small-music` and `stabilityai/stable-audio-3-medium` are gated on
+Hugging Face. Accept the model terms with the account used by the machine and expose a token as
+`HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN`.
+
+```bash
+pip install "abstractmusic[stable-audio-3]"
+export HF_TOKEN=...
+abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --duration 30 --steps 16 --out out.wav
+```
+
+This backend uses AbstractMusic-owned internal runtime code. Do not install the upstream
+`stable_audio_3` package or point AbstractMusic at a local Stable Audio checkout.
 
 ## Release workflow refuses to publish
 

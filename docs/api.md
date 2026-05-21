@@ -59,6 +59,11 @@ The plugin capability object exposes AbstractCore-friendly discovery methods:
 `list_provider_models(...)`, `list_operations(task=...)`, and `capability_catalog(task=...)`.
 They use the packaged model capability registry and do not load model weights.
 
+Planners that understand song structure can return `composition_plan` in addition to prompt/lyrics.
+Backends that support structured plans, such as `elevenlabs`, translate that provider-neutral plan
+into their native request format. Backends that do not support plans continue using the compiled
+prompt/lyrics fields.
+
 ## Request Fields
 
 Core fields:
@@ -73,6 +78,7 @@ Core fields:
 - `seed`
 - `format`
 - `sample_rate`
+- `composition_plan`
 - `extra`
 
 Backends must raise clear errors for unsupported fields when support is known.
@@ -92,6 +98,9 @@ The registry is metadata only. It must not silently change the configured provid
 
 - `acemusic`: default lightweight remote backend for the ACE Music hosted API. It requires a remote
   API key and can request WAV, MP3, or FLAC.
+- `elevenlabs`: lightweight remote backend for ElevenLabs Music only. It requires
+  `ELEVENLABS_API_KEY`, calls `/v1/music` and `/v1/music/plan`, and can request WAV or MP3. Voice
+  and text-to-speech routes are intentionally not exposed here.
 - `acestep`: local ACE-Step Diffusers XL Turbo backend alias.
 - `acestep-diffusers`: explicit name for the local ACE-Step Diffusers adapter for
   `ACE-Step/acestep-v15-xl-turbo-diffusers`.
@@ -101,3 +110,6 @@ The registry is metadata only. It must not silently change the configured provid
 - `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
 - `stable-audio`: stable-audio-tools adapter for `stabilityai/stable-audio-open-small`
   (gated, non-default, short clips).
+- `stable-audio-3`: internal AbstractMusic runtime for `stabilityai/stable-audio-3-small-music`
+  and tracked Medium support. Uses Hugging Face weights/configs only; it does not import the
+  upstream `stable_audio_3` package.

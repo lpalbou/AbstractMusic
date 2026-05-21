@@ -198,17 +198,21 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 4
+    assert len(reg.registrations) == 6
     backend_ids = {r["backend_id"] for r in reg.registrations}
     assert backend_ids == {
         "abstractmusic:acemusic",
+        "abstractmusic:elevenlabs-music",
         "abstractmusic:acestep-v15",
         "abstractmusic:acestep-diffusers",
+        "abstractmusic:stable-audio-3",
         "abstractmusic:diffusers",
     }
     priorities = {r["backend_id"]: r["priority"] for r in reg.registrations}
     assert priorities["abstractmusic:acemusic"] > priorities["abstractmusic:acestep-diffusers"]
+    assert priorities["abstractmusic:elevenlabs-music"] > priorities["abstractmusic:acestep-diffusers"]
     assert priorities["abstractmusic:acestep-diffusers"] > priorities["abstractmusic:acestep-v15"]
+    assert priorities["abstractmusic:stable-audio-3"] > priorities["abstractmusic:acestep-v15"]
     assert all(callable(r["factory"]) for r in reg.registrations)
 
 
@@ -273,6 +277,35 @@ def test_acemusic_capability_configures_remote_backend_without_hf_model_validati
     assert backend.config.api_key == "secret-token"
     assert backend.config.base_url == "https://api.example.test"
     assert backend.config.model == "provider-model-name"
+    assert backend.config.timeout_s == 12
+
+
+@pytest.mark.unit
+def test_elevenlabs_music_capability_configures_music_only_backend_without_hf_model_validation():
+    from abstractmusic.integrations.abstractcore_plugin import register
+
+    reg = _Registry()
+    register(reg)
+    factory = _get_factory(reg, "abstractmusic:elevenlabs-music")
+
+    owner = _DummyOwner(
+        {
+            "music_elevenlabs_api_key": "secret-token",
+            "music_elevenlabs_base_url": "https://api.example.test",
+            "music_elevenlabs_model": "music_v1",
+            "music_elevenlabs_output_format": "mp3_44100_128",
+            "music_composition_mode": "plan",
+            "music_elevenlabs_timeout_s": 12,
+        }
+    )
+    cap = factory(owner)
+    backend = cap._get_backend()
+
+    assert backend.config.api_key == "secret-token"
+    assert backend.config.base_url == "https://api.example.test"
+    assert backend.config.model == "music_v1"
+    assert backend.config.output_format == "mp3_44100_128"
+    assert backend.config.composition_mode == "plan"
     assert backend.config.timeout_s == 12
 
 
@@ -531,6 +564,7 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
     providers = cap.available_providers(task="t2m")
     provider_ids = {item["provider_id"] for item in providers}
     assert "ace-music" in provider_ids
+    assert "elevenlabs" in provider_ids
     assert "ace-step" in provider_ids
     assert all(item["capability"] == "music" for item in providers)
 
@@ -557,6 +591,11 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
     remote_cap = remote_factory(_DummyOwner({}))
     remote_ops = remote_cap.list_operations(task="text_to_music")
     assert remote_ops[0]["metadata"]["formats"] == ["wav", "mp3", "flac"]
+
+    eleven_factory = _get_factory(reg, "abstractmusic:elevenlabs-music")
+    eleven_cap = eleven_factory(_DummyOwner({}))
+    eleven_ops = eleven_cap.list_operations(task="text_to_music")
+    assert eleven_ops[0]["metadata"]["formats"] == ["wav", "mp3"]
 
     catalog = cap.capability_catalog(task="text_to_music")
     assert catalog["capability"] == "music"

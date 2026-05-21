@@ -6,8 +6,10 @@ This registers a `music` capability backend discovered by AbstractCore via the
 
 Built-in backends:
 - Remote ACE Music API backend (default light/base install path).
+- Remote ElevenLabs Music API backend (music endpoints only).
 - Local ACE-Step Diffusers XL pipeline (in-process, optional extra).
 - Local ACE-Step v1.5 pipeline (explicit quality-limited backend).
+- Local Stable Audio 3 internal runtime (gated weights; optional extra).
 - Local Diffusers audio pipeline (alternative; in-process).
 """
 
@@ -39,8 +41,10 @@ _TASK_ALIASES = {
 
 _BACKEND_ID_TO_KIND = {
     "abstractmusic:acemusic": "acemusic",
+    "abstractmusic:elevenlabs-music": "elevenlabs",
     "abstractmusic:acestep-diffusers": "acestep-diffusers",
     "abstractmusic:acestep-v15": "acestep-v15",
+    "abstractmusic:stable-audio-3": "stable-audio-3",
     "abstractmusic:diffusers": "diffusers",
 }
 
@@ -51,6 +55,7 @@ _RUNTIME_IMPORTS_BY_EXTRA = {
     "diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "musicgen": ("torch", "transformers", "safetensors", "huggingface_hub"),
     "stable-audio": ("torch", "torchaudio", "transformers", "stable_audio_tools"),
+    "stable-audio-3": ("torch", "transformers", "safetensors", "huggingface_hub", "einops"),
 }
 
 
@@ -211,6 +216,7 @@ def _canonical_provider_id(value: Any) -> str:
 def _display_name(provider_id: str) -> str:
     known = {
         "ace-music": "ACE Music",
+        "elevenlabs": "ElevenLabs",
         "ace-step": "ACE-Step",
         "meta": "Meta",
         "stability-ai": "Stability AI",
@@ -321,6 +327,7 @@ def _music_plan_json_schema() -> Dict[str, Any]:
             "generated_fields": {"type": "array", "items": {"type": "string"}},
             "warnings": {"type": "array", "items": {"type": "string"}},
             "confidence": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+            "composition_plan": {"type": ["object", "null"], "additionalProperties": True},
         },
         "required": ["prompt"],
     }
@@ -734,6 +741,8 @@ class _AbstractMusicCapabilityBase:
     def _supported_output_formats(self) -> List[str]:
         if _selected_backend_kind(str(getattr(self, "backend_id", ""))) == "acemusic":
             return ["wav", "mp3", "flac"]
+        if _selected_backend_kind(str(getattr(self, "backend_id", ""))) == "elevenlabs":
+            return ["wav", "mp3"]
         return ["wav"]
 
     def capability_catalog(self, *, task: Optional[str] = None) -> Dict[str, Any]:
@@ -849,6 +858,54 @@ class _AbstractMusicAceMusicCapability(_AbstractMusicCapabilityBase):
         return self._backend
 
 
+class _AbstractMusicElevenLabsMusicCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using ElevenLabs Music endpoints only."""
+
+    backend_id = "abstractmusic:elevenlabs-music"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        base_url = (
+            _owner_cfg(self._owner, "music_elevenlabs_base_url")
+            or _env("ELEVENLABS_BASE_URL")
+            or "https://api.elevenlabs.io"
+        )
+        api_key = (
+            _owner_cfg(self._owner, "music_elevenlabs_api_key")
+            or _env("ELEVENLABS_API_KEY")
+        )
+        model = _owner_cfg(self._owner, "music_elevenlabs_model") or "music_v1"
+        output_format = _owner_cfg(self._owner, "music_elevenlabs_output_format")
+        composition_mode = _owner_cfg(self._owner, "music_composition_mode") or "auto"
+        timeout_s = _owner_cfg_any(self._owner, "music_elevenlabs_timeout_s")
+
+        def _to_float(v: Any, default: float) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return float(default)
+
+        from ..backends.elevenlabs_music import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
+
+        cfg = ElevenLabsMusicBackendConfig(
+            base_url=str(base_url or "https://api.elevenlabs.io"),
+            api_key=str(api_key) if api_key is not None else None,
+            model=str(model or "music_v1"),
+            timeout_s=_to_float(timeout_s, 600.0),
+            output_format=str(output_format).strip() if isinstance(output_format, str) and output_format.strip() else None,
+            composition_mode=str(composition_mode or "auto"),
+        )
+        self._backend = ElevenLabsMusicBackend(config=cfg)
+        return self._backend
+
+
 class _AbstractMusicDiffusersCapability(_AbstractMusicCapabilityBase):
     """AbstractCore MusicCapability using Diffusers local pipelines."""
 
@@ -955,7 +1012,7 @@ class _AbstractMusicAceStepDiffusersCapability(_AbstractMusicCapabilityBase):
             model_id=str(model_id),
             device=str(device or "auto"),
             torch_dtype=str(dtype or "auto"),
-            num_inference_steps=_to_int(steps, 8),
+            num_inference_steps=_to_int(steps, 16),
             duration_s=_to_float(duration_s, 10.0),
         )
         self._backend = AceStepDiffusersBackend(config=cfg)
@@ -997,6 +1054,53 @@ class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
         return self._backend
 
 
+class _AbstractMusicStableAudio3Capability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using AbstractMusic's internal Stable Audio 3 runtime."""
+
+    backend_id = "abstractmusic:stable-audio-3"
+
+    def _get_backend(self):
+        if self._backend is not None:
+            return self._backend
+
+        try:
+            return super()._get_backend()
+        except NotImplementedError:
+            pass
+
+        model_id = _require_model_id(self._owner) or "stabilityai/stable-audio-3-small-music"
+        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
+        dtype = _owner_cfg(self._owner, "music_torch_dtype") or _env("ABSTRACTMUSIC_TORCH_DTYPE", "auto")
+        steps = _owner_cfg_any(self._owner, "music_num_inference_steps") or _env("ABSTRACTMUSIC_NUM_INFERENCE_STEPS")
+        duration_s = _owner_cfg_any(self._owner, "music_duration_s") or _env("ABSTRACTMUSIC_DURATION_S")
+        guidance_scale = _owner_cfg_any(self._owner, "music_guidance_scale") or _env("ABSTRACTMUSIC_GUIDANCE_SCALE")
+
+        def _to_int(v: Any, default: int) -> int:
+            try:
+                return int(v)
+            except Exception:
+                return int(default)
+
+        def _to_float(v: Any, default: float) -> float:
+            try:
+                return float(v)
+            except Exception:
+                return float(default)
+
+        from ..backends.stable_audio_3 import StableAudio3Backend, StableAudio3BackendConfig
+
+        cfg = StableAudio3BackendConfig(
+            model_id=str(model_id),
+            device=str(device or "auto"),
+            torch_dtype=str(dtype or "auto"),
+            duration_s=_to_float(duration_s, 30.0),
+            num_inference_steps=_to_int(steps, 8),
+            guidance_scale=_to_float(guidance_scale, 1.0),
+        )
+        self._backend = StableAudio3Backend(config=cfg)
+        return self._backend
+
+
 def register(registry: Any) -> None:
     """Register AbstractMusic as an AbstractCore capability plugin."""
 
@@ -1008,6 +1112,18 @@ def register(registry: Any) -> None:
         config_hint="Set music_acemusic_api_key or ACEMUSIC_API_KEY. "
         "Optional: set music_acemusic_base_url or ACEMUSIC_BASE_URL (default: https://api.acemusic.ai), "
         "and music_text_planner / music_text_planner_factory or a narrow host text service for text planning.",
+    )
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicElevenLabsMusicCapability.backend_id,
+        factory=lambda owner: _AbstractMusicElevenLabsMusicCapability(owner),
+        priority=45,
+        description="AbstractMusic ElevenLabs Music remote API path (music generation endpoints only).",
+        config_hint="Set music_elevenlabs_api_key or ELEVENLABS_API_KEY. "
+        "Optional: set music_elevenlabs_base_url or ELEVENLABS_BASE_URL "
+        "(default: https://api.elevenlabs.io), music_elevenlabs_model='music_v1', "
+        "music_composition_mode='auto'/'prompt'/'plan', and a host text planner for richer composition plans. "
+        "Voice/TTS endpoints are intentionally not exposed here; use AbstractVoice for voice.",
     )
 
     registry.register_music_backend(
@@ -1030,6 +1146,17 @@ def register(registry: Any) -> None:
         "Local filesystem paths are rejected. "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu', music_torch_dtype='auto'/'float32'/'bfloat16', "
         "and music_text_planner / music_text_planner_factory or a narrow host text service for text planning.",
+    )
+
+    registry.register_music_backend(
+        backend_id=_AbstractMusicStableAudio3Capability.backend_id,
+        factory=lambda owner: _AbstractMusicStableAudio3Capability(owner),
+        priority=10,
+        description="AbstractMusic Stable Audio 3 path (internal package-owned runtime; gated Hugging Face weights).",
+        config_hint="Optional: set music_model_id to 'stabilityai/stable-audio-3-small-music' "
+        "(default) or 'stabilityai/stable-audio-3-medium'. Local filesystem paths are rejected. "
+        "Requires accepted Hugging Face model terms and the stable-audio-3 extra. "
+        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu' and music_torch_dtype='auto'/'float32'/'float16'.",
     )
 
     registry.register_music_backend(
