@@ -6,6 +6,12 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.10] - 2026-05-21
+
+### Added
+
+- Exposed `positive_styles` / `negative_styles` in the AbstractCore plugin operation schema so hosts can discover and pass style tags.
+
 ## [0.1.9] - 2026-05-21
 
 ### Added

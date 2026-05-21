@@ -945,6 +945,8 @@ class _AbstractMusicCapabilityBase:
             "properties": {
                 "prompt": {"type": "string"},
                 "lyrics": {"type": ["string", "null"]},
+                "positive_styles": {"type": ["array", "string", "null"], "items": {"type": "string"}},
+                "negative_styles": {"type": ["array", "string", "null"], "items": {"type": "string"}},
                 "duration_s": {"type": ["number", "null"], "minimum": 0},
                 "seed": {"type": ["integer", "null"]},
                 "format": {"type": "string", "enum": formats},
