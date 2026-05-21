@@ -13,11 +13,12 @@ import argparse
 import cmd
 import json
 import os
+import re
 import shlex
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from .errors import AbstractMusicError
 from .huggingface import require_hf_repo_id
@@ -146,6 +147,25 @@ def _downloads_enabled_default() -> bool:
 
 def _timestamp_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S")
+
+
+def _split_style_values(values: object) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        candidates: Sequence[object] = [values]
+    elif isinstance(values, Sequence) and not isinstance(values, (str, bytes)):
+        candidates = values
+    else:
+        candidates = [values]
+
+    out: list[str] = []
+    for item in candidates:
+        for part in re.split(r"[,\n]+", str(item or "")):
+            text = str(part).strip()
+            if text and text not in out:
+                out.append(text)
+    return tuple(out)
 
 
 def _write_bytes(path: Path, content: bytes) -> None:
@@ -558,6 +578,22 @@ def build_parser() -> argparse.ArgumentParser:
             help="Negative prompt (backend-supported)",
         )
         parser.add_argument(
+            "--style",
+            dest="positive_styles",
+            action="append",
+            default=[] if use_defaults else default_suppress,
+            help="Positive style/instrument tags (repeatable or comma-separated). "
+            "Used to enrich prompts and composition plans when supported.",
+        )
+        parser.add_argument(
+            "--negative-style",
+            dest="negative_styles",
+            action="append",
+            default=[] if use_defaults else default_suppress,
+            help="Negative style tags to avoid (repeatable or comma-separated). "
+            "Mainly used by composition-plan backends like ElevenLabs Music.",
+        )
+        parser.add_argument(
             "--verbose",
             action="store_true",
             default=verbose_default if use_defaults else default_suppress,
@@ -811,11 +847,15 @@ def _load_composition_plan(path_value: Optional[str]) -> Optional[dict[str, Any]
     return dict(parsed)
 
 
-def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Optional[str]) -> tuple[str, Optional[str], dict[str, Any]]:
+def _resolve_generation_text(
+    args: argparse.Namespace, prompt: str, lyrics: Optional[str]
+) -> tuple[str, Optional[str], dict[str, Any], Optional[Any]]:
     """Resolve local prompt expansion, lyrics, and music metadata for one request."""
 
     backend_kind = str(getattr(args, "backend", DEFAULT_BACKEND) or DEFAULT_BACKEND).strip().lower()
     duration = float(getattr(args, "duration", 10.0))
+    positive_styles = _split_style_values(getattr(args, "positive_styles", None))
+    negative_styles = _split_style_values(getattr(args, "negative_styles", None))
     plan_request = MusicPlanningRequest(
         prompt=str(prompt or ""),
         lyrics=lyrics,
@@ -824,6 +864,8 @@ def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Opti
         bpm=getattr(args, "bpm", None),
         keyscale=getattr(args, "keyscale", None),
         timesignature=getattr(args, "timesignature", None),
+        positive_styles=positive_styles,
+        negative_styles=negative_styles,
         instrumental=bool(getattr(args, "instrumental", False)),
         enhance_prompt=bool(getattr(args, "enhance_prompt", False)),
         structure_prompt=bool(getattr(args, "structure_prompt", True)),
@@ -848,17 +890,24 @@ def _resolve_generation_text(args: argparse.Namespace, prompt: str, lyrics: Opti
         print(f"  bpm: {plan.bpm if plan.bpm is not None else 'auto'}", file=sys.stderr)
         print(f"  keyscale: {plan.keyscale or 'auto'}", file=sys.stderr)
         print(f"  timesignature: {plan.timesignature or 'auto'}", file=sys.stderr)
+        if positive_styles:
+            print(f"  positive_styles: {', '.join(positive_styles)}", file=sys.stderr)
+        if negative_styles:
+            print(f"  negative_styles: {', '.join(negative_styles)}", file=sys.stderr)
         print(f"  structured_prompt: {'yes' if plan.structured_prompt else 'no'}", file=sys.stderr)
         print(f"  planner_backend: {plan.planner_backend}", file=sys.stderr)
         print(f"  generated_fields: {', '.join(plan.generated_fields) if plan.generated_fields else 'none'}", file=sys.stderr)
         print(f"  warnings: {', '.join(compiled.metadata.get('planner_warnings') or ()) or 'none'}", file=sys.stderr)
 
-    return compiled.prompt, compiled.lyrics, dict(compiled.metadata)
+    return compiled.prompt, compiled.lyrics, dict(compiled.metadata), compiled.composition_plan
 
 
 def _cmd_t2m(args: argparse.Namespace) -> int:
     mm = _make_manager_from_args(args)
-    prompt, lyrics, plan_meta = _resolve_generation_text(args, str(args.prompt), getattr(args, "lyrics", None))
+    prompt, lyrics, plan_meta, planned_composition_plan = _resolve_generation_text(
+        args, str(args.prompt), getattr(args, "lyrics", None)
+    )
+    composition_plan = _load_composition_plan(getattr(args, "composition_plan", None)) or planned_composition_plan
 
     wav = mm.t2m(
         prompt,
@@ -870,7 +919,7 @@ def _cmd_t2m(args: argparse.Namespace) -> int:
         negative_prompt=args.negative,
         lyrics=lyrics,
         vocal_language=plan_meta["vocal_language"],
-        composition_plan=_load_composition_plan(getattr(args, "composition_plan", None)),
+        composition_plan=composition_plan,
         composition_mode=getattr(args, "composition_mode", "auto"),
         bpm=plan_meta["bpm"],
         keyscale=plan_meta["keyscale"],
@@ -1087,11 +1136,12 @@ class MusicREPL(cmd.Cmd):
         if backend_kind == "diffusers" and not effective_model:
             print("ERROR: engine=diffusers requires /model <huggingface_repo_id>", file=sys.stderr)
             return
-        request_prompt, request_lyrics, plan_meta = _resolve_generation_text(
+        request_prompt, request_lyrics, plan_meta, planned_composition_plan = _resolve_generation_text(
             self.args,
             prompt,
             getattr(self.args, "lyrics", None),
         )
+        composition_plan = _load_composition_plan(getattr(self.args, "composition_plan", None)) or planned_composition_plan
         duration = float(getattr(self.args, "duration", 10.0))
         model_suffix = ""
         if getattr(self.args, "model_id", None) is None and self._default_model_for_engine(backend_kind):
@@ -1107,7 +1157,7 @@ class MusicREPL(cmd.Cmd):
             negative_prompt=getattr(self.args, "negative", None),
             lyrics=request_lyrics,
             vocal_language=plan_meta["vocal_language"],
-            composition_plan=_load_composition_plan(getattr(self.args, "composition_plan", None)),
+            composition_plan=composition_plan,
             composition_mode=getattr(self.args, "composition_mode", "auto"),
             bpm=plan_meta["bpm"],
             keyscale=plan_meta["keyscale"],
@@ -1151,6 +1201,8 @@ class MusicREPL(cmd.Cmd):
         print("Common params:")
         print("  /download <on|off>       Allow/disallow downloading missing HF model files")
         print("  /duration <seconds>      Duration in seconds")
+        print("  /style <tags|clear>      Set positive style/instrument tags (comma-separated)")
+        print("  /negative-style <tags|clear> Set negative style tags to avoid (comma-separated)")
         print("  /steps <n|auto>          Inference steps")
         print("  /seed <n|auto>           Seed")
         print("  /format <wav|mp3|flac>   Output format (remote backends may support more)")
@@ -1223,6 +1275,8 @@ class MusicREPL(cmd.Cmd):
         print(f"steps: {getattr(self.args, 'steps', None) or 'auto'}")
         print(f"seed: {getattr(self.args, 'seed', None) if getattr(self.args, 'seed', None) is not None else 'auto'}")
         print(f"format: {str(getattr(self.args, 'format', 'wav') or 'wav')}")
+        print(f"style: {', '.join(_split_style_values(getattr(self.args, 'positive_styles', None))) or 'none'}")
+        print(f"negative_style: {', '.join(_split_style_values(getattr(self.args, 'negative_styles', None))) or 'none'}")
         print(f"download: {'on' if bool(getattr(self.args, 'download', _downloads_enabled_default())) else 'off'}")
 
     def do_engines(self, arg: str = "") -> None:
@@ -1525,6 +1579,26 @@ class MusicREPL(cmd.Cmd):
     def do_negative(self, arg: str) -> None:
         self._set_optional_text("negative", arg, "negative")
 
+    def _set_style_list(self, name: str, arg: str, label: str) -> None:
+        value = str(arg or "").strip()
+        current = _split_style_values(getattr(self.args, name, None))
+        if not value:
+            print(", ".join(current) if current else "none")
+            return
+        if value.lower() in {"clear", "none", "null", "off"}:
+            setattr(self.args, name, [])
+            print(f"{label}: cleared")
+            return
+        parsed = _split_style_values([value])
+        setattr(self.args, name, list(parsed))
+        print(f"{label}: {', '.join(parsed) if parsed else 'none'}")
+
+    def do_style(self, arg: str = "") -> None:
+        self._set_style_list("positive_styles", arg, "style")
+
+    def do_negative_style(self, arg: str = "") -> None:
+        self._set_style_list("negative_styles", arg, "negative-style")
+
     def do_lyrics(self, arg: str) -> None:
         self._set_optional_text("lyrics", arg, "lyrics")
 
@@ -1562,6 +1636,8 @@ class MusicREPL(cmd.Cmd):
             ("bpm", getattr(self.args, "bpm", None) if getattr(self.args, "bpm", None) is not None else "auto"),
             ("keyscale", getattr(self.args, "keyscale", None) or "auto"),
             ("timesignature", getattr(self.args, "timesignature", None) or "auto"),
+            ("style", ", ".join(_split_style_values(getattr(self.args, "positive_styles", None))) or "none"),
+            ("negative_style", ", ".join(_split_style_values(getattr(self.args, "negative_styles", None))) or "none"),
             ("vocal_language", getattr(self.args, "vocal_language", None) or "unknown"),
             ("enhance_prompt", "on" if bool(getattr(self.args, "enhance_prompt", False)) else "off"),
             ("structure_prompt", "on" if bool(getattr(self.args, "structure_prompt", True)) else "off"),

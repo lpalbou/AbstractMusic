@@ -23,12 +23,20 @@ from .diffusers_audio import _encode_wav_bytes, _resolve_device
 
 
 MODEL_ID_SMALL_MUSIC = "stabilityai/stable-audio-3-small-music"
+MODEL_ID_SMALL_SFX = "stabilityai/stable-audio-3-small-sfx"
 MODEL_ID_MEDIUM = "stabilityai/stable-audio-3-medium"
 
 _MODEL_INFO: Dict[str, Dict[str, Any]] = {
     MODEL_ID_SMALL_MUSIC: {
         "name": "small-music",
         "display": "Stable Audio 3 Small Music",
+        "max_duration_s": 120.0,
+        "sample_rate_hz": 44100,
+        "hardware": "CPU",
+    },
+    MODEL_ID_SMALL_SFX: {
+        "name": "small-sfx",
+        "display": "Stable Audio 3 Small SFX",
         "max_duration_s": 120.0,
         "sample_rate_hz": 44100,
         "hardware": "CPU",
@@ -45,9 +53,13 @@ _MODEL_INFO: Dict[str, Dict[str, Any]] = {
 _MODEL_ALIASES = {
     "small": MODEL_ID_SMALL_MUSIC,
     "small-music": MODEL_ID_SMALL_MUSIC,
+    "small-sfx": MODEL_ID_SMALL_SFX,
+    "sfx": MODEL_ID_SMALL_SFX,
     "stable-audio-3-small": MODEL_ID_SMALL_MUSIC,
     "stable-audio-3-small-music": MODEL_ID_SMALL_MUSIC,
     MODEL_ID_SMALL_MUSIC.lower(): MODEL_ID_SMALL_MUSIC,
+    "stable-audio-3-small-sfx": MODEL_ID_SMALL_SFX,
+    MODEL_ID_SMALL_SFX.lower(): MODEL_ID_SMALL_SFX,
     "medium": MODEL_ID_MEDIUM,
     "stable-audio-3-medium": MODEL_ID_MEDIUM,
     MODEL_ID_MEDIUM.lower(): MODEL_ID_MEDIUM,

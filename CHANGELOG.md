@@ -6,6 +6,22 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.9] - 2026-05-21
+
+### Added
+
+- Added provider-neutral style tags: CLI `--style/--negative-style` and REPL `/style` + `/negative-style`.
+- Added `stabilityai/stable-audio-3-small-sfx` to the Stable Audio 3 backend and packaged model registry.
+
+### Changed
+
+- AbstractCore host text-planner schema now allows `positive_styles` / `negative_styles` in structured plans.
+
+### Docs
+
+- Documented style tags, instruments, and vocal-trait prompting in `docs/repl.md`, `docs/api.md`, and `docs/faq.md`.
+- Added Stable Audio 3 Small SFX to `docs/models.md`.
+
 ## [0.1.8] - 2026-05-21
 
 ### Added

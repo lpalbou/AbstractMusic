@@ -23,6 +23,8 @@ _PLAN_FIELD_NAMES = {
     "bpm",
     "keyscale",
     "timesignature",
+    "positive_styles",
+    "negative_styles",
     "enhanced_prompt",
     "structured_prompt",
     "generated_lyrics",
@@ -38,6 +40,8 @@ _PLAN_FIELD_NAMES = {
 
 
 def _dedupe_tuple(values: Sequence[Any]) -> Tuple[str, ...]:
+    if isinstance(values, (str, bytes)):
+        values = (values,)
     out = []
     for value in values:
         text = str(value).strip()
@@ -57,6 +61,8 @@ class MusicPlanningRequest:
     bpm: Optional[int] = None
     keyscale: Optional[str] = None
     timesignature: Optional[str] = None
+    positive_styles: Sequence[str] = field(default_factory=tuple)
+    negative_styles: Sequence[str] = field(default_factory=tuple)
     instrumental: bool = False
     enhance_prompt: bool = False
     structure_prompt: bool = True
@@ -73,6 +79,8 @@ class MusicPlanningRequest:
             "bpm": self.bpm,
             "keyscale": self.keyscale,
             "timesignature": self.timesignature,
+            "positive_styles": list(self.positive_styles) if self.positive_styles else [],
+            "negative_styles": list(self.negative_styles) if self.negative_styles else [],
             "instrumental": self.instrumental,
             "enhance_prompt": self.enhance_prompt,
             "structure_prompt": self.structure_prompt,
@@ -92,6 +100,8 @@ class MusicPromptPlan:
     bpm: Optional[int] = None
     keyscale: Optional[str] = None
     timesignature: Optional[str] = None
+    positive_styles: Tuple[str, ...] = ()
+    negative_styles: Tuple[str, ...] = ()
     enhanced_prompt: bool = False
     structured_prompt: bool = False
     generated_lyrics: bool = False
@@ -419,6 +429,8 @@ def validate_music_prompt_plan(request: MusicPlanningRequest, plan: MusicPromptP
 
     vocal_language = request.vocal_language if request.vocal_language else plan.vocal_language
     generated_fields = tuple(str(v) for v in (plan.generated_fields or ()) if str(v).strip())
+    positive_styles = _dedupe_tuple(request.positive_styles or plan.positive_styles or ())
+    negative_styles = _dedupe_tuple(request.negative_styles or plan.negative_styles or ())
     return replace(
         plan,
         prompt=prompt,
@@ -427,6 +439,8 @@ def validate_music_prompt_plan(request: MusicPlanningRequest, plan: MusicPromptP
         bpm=bpm,
         keyscale=str(keyscale).strip() if isinstance(keyscale, str) and keyscale.strip() else None,
         timesignature=timesignature,
+        positive_styles=positive_styles,
+        negative_styles=negative_styles,
         instrumental=bool(request_instrumental or plan.instrumental),
         generated_fields=generated_fields,
         warnings=_dedupe_tuple(warnings),
@@ -441,19 +455,54 @@ def compile_music_prompt_plan(
 ) -> CompiledMusicPromptPlan:
     """Render a validated plan into prompt/lyrics plus planner metadata."""
 
+    from .types import MusicCompositionPlan
+
+    def _backend_supports_composition_plan(backend_id: str) -> bool:
+        kind = str(backend_id or "").strip().lower()
+        if ":" in kind:
+            kind = kind.split(":", 1)[1]
+        return "elevenlabs" in kind
+
+    def _apply_style_tags(prompt: str, styles: Tuple[str, ...]) -> str:
+        if not styles:
+            return str(prompt or "").strip()
+        clean = str(prompt or "").strip()
+        tag_text = ", ".join(str(s).strip() for s in styles if str(s).strip())
+        if not tag_text:
+            return clean
+        if "\n" not in clean and len(clean) < 160:
+            return f"{clean}, {tag_text}"
+        return f"{clean}\n\nStyle tags: {tag_text}"
+
     request_prompt = str(plan.prompt or "")
     request_lyrics = plan.lyrics
+    positive_styles = tuple(str(v).strip() for v in (plan.positive_styles or ()) if str(v).strip())
+    negative_styles = tuple(str(v).strip() for v in (plan.negative_styles or ()) if str(v).strip())
     warnings = list(plan.warnings)
     if not bool(native_lyrics_supported) and isinstance(request_lyrics, str) and request_lyrics.strip():
         request_prompt = f"{request_prompt}\n\nLyrics:\n{request_lyrics.strip()}"
         request_lyrics = None
         warnings.append("lyrics_folded_into_prompt")
 
+    composition_plan = plan.composition_plan
+    if composition_plan is None and (positive_styles or negative_styles):
+        composition_plan = MusicCompositionPlan(
+            positive_styles=positive_styles,
+            negative_styles=negative_styles,
+            sections=(),
+            metadata={"source": "abstractmusic.styles"},
+        )
+
+    if positive_styles and not _backend_supports_composition_plan(backend):
+        request_prompt = _apply_style_tags(request_prompt, positive_styles)
+
     metadata: Dict[str, Any] = {
         "bpm": plan.bpm,
         "keyscale": plan.keyscale,
         "timesignature": plan.timesignature,
         "vocal_language": plan.vocal_language,
+        "positive_styles": positive_styles,
+        "negative_styles": negative_styles,
         "enhanced_prompt": plan.enhanced_prompt,
         "structured_prompt": plan.structured_prompt,
         "generated_lyrics": plan.generated_lyrics,
@@ -470,7 +519,7 @@ def compile_music_prompt_plan(
     return CompiledMusicPromptPlan(
         prompt=request_prompt,
         lyrics=request_lyrics,
-        composition_plan=plan.composition_plan,
+        composition_plan=composition_plan,
         metadata=metadata,
     )
 
@@ -596,6 +645,8 @@ def _coerce_music_prompt_plan(value: Any) -> MusicPromptPlan:
         bpm=int(raw["bpm"]) if raw.get("bpm") is not None else None,
         keyscale=_optional_str("keyscale"),
         timesignature=_optional_str("timesignature"),
+        positive_styles=_tuple_str("positive_styles"),
+        negative_styles=_tuple_str("negative_styles"),
         enhanced_prompt=bool(raw.get("enhanced_prompt", False)),
         structured_prompt=bool(raw.get("structured_prompt", False)),
         generated_lyrics=bool(raw.get("generated_lyrics", False)),

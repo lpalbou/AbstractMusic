@@ -334,6 +334,8 @@ def _music_plan_json_schema() -> Dict[str, Any]:
             "bpm": {"type": ["integer", "null"], "minimum": 20, "maximum": 300},
             "keyscale": {"type": ["string", "null"]},
             "timesignature": {"type": ["string", "null"]},
+            "positive_styles": {"type": "array", "items": {"type": "string"}},
+            "negative_styles": {"type": "array", "items": {"type": "string"}},
             "instrumental": {"type": "boolean"},
             "enhanced_prompt": {"type": "boolean"},
             "structured_prompt": {"type": "boolean"},
@@ -352,7 +354,9 @@ def _planner_system_prompt() -> str:
         "You are a music planning service for a local text-to-music backend. "
         "Return only structured fields for the audio model. Create an original, highly specific music caption "
         "from the user's request; infer useful BPM, key/scale, time signature, instrumental intent, "
-        "and optional lyrics only when requested. For references to named games, films, artists, or songs, "
+        "and optional lyrics only when requested. When the user specifies instruments, vocalist traits, "
+        "or production style, include concise tag-style hints in positive_styles / negative_styles. "
+        "For references to named games, films, artists, or songs, "
         "translate the reference into generic musical traits instead of claiming exact imitation. "
         "Favor clear rhythmic structure, instrumentation, section movement, and continuity constraints."
     )
@@ -363,7 +367,8 @@ def _planner_user_prompt(request_dict: Dict[str, Any]) -> str:
         "Create an AbstractMusic prompt plan as JSON for this request.\n"
         "Preserve explicit lyrics unless they are 'auto'. If instrumental is true or the request is clearly "
         "game/action background music, set lyrics to '[Instrumental]'. For long durations, include a concise "
-        "section plan in the prompt and avoid empty gaps or long fade-outs.\n\n"
+        "section plan in the prompt and avoid empty gaps or long fade-outs. "
+        "Use positive_styles / negative_styles for short comma-style tags (instruments, vocalist traits, mixing notes).\n\n"
         f"Request JSON:\n{json.dumps(request_dict, ensure_ascii=True, sort_keys=True)}"
     )
 
@@ -484,7 +489,16 @@ class _CoreTextServiceMusicPlanner:
         if not out.get("generated_fields"):
             out["generated_fields"] = [
                 key
-                for key in ("prompt", "lyrics", "bpm", "keyscale", "timesignature", "vocal_language")
+                for key in (
+                    "prompt",
+                    "lyrics",
+                    "bpm",
+                    "keyscale",
+                    "timesignature",
+                    "vocal_language",
+                    "positive_styles",
+                    "negative_styles",
+                )
                 if out.get(key) not in (None, "", [])
             ]
         return out

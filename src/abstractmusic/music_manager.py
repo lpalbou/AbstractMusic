@@ -149,6 +149,8 @@ class MusicManager:
                 bpm=kwargs.get("bpm"),
                 keyscale=kwargs.get("keyscale"),
                 timesignature=kwargs.get("timesignature"),
+                positive_styles=kwargs.get("positive_styles") or (),
+                negative_styles=kwargs.get("negative_styles") or (),
                 instrumental=instrumental,
                 enhance_prompt=enhance_prompt,
                 structure_prompt=structure_prompt,

@@ -29,6 +29,16 @@ adapter can be added later if there is an official, stable, documented API contr
 No. AbstractMusic calls only ElevenLabs Music endpoints. Voice, text-to-speech, speech-to-speech,
 and voice cloning belong in AbstractVoice.
 
+## How do I specify instruments or vocalist traits?
+
+Use plain text in the prompt (for example: “jazz with saxophone and brushed drums”) or set
+provider-neutral style tags:
+
+- CLI: `--style "saxophone, brushed drums, female vocalist"`
+- REPL: `/style saxophone, brushed drums, female vocalist`
+
+This nudges the model, but it is not a guaranteed identity selector (no voice cloning here).
+
 ## Can HeartMuLa generate music?
 
 Yes. The HeartMuLa model card describes it as a text-to-audio/music model, and the official

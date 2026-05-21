@@ -214,18 +214,20 @@ def test_cli_resolves_generation_text_for_acestep_and_generic_backend(capsys):
         text_planner="deterministic",
         print_plan=True,
     )
-    prompt, lyrics, meta = _resolve_generation_text(ace_args, "heroic fantasy song", None)
+    prompt, lyrics, meta, composition_plan = _resolve_generation_text(ace_args, "heroic fantasy song", None)
 
     assert "French horns" in prompt
     assert lyrics is not None and "[Chorus]" in lyrics
+    assert composition_plan is None
     assert meta["bpm"] == 96
     assert meta["structured_prompt"] is False
     assert meta["generated_lyrics"] is True
     assert "Effective music plan:" in capsys.readouterr().err
 
     generic_args = argparse.Namespace(**{**vars(ace_args), "backend": "musicgen", "print_plan": False})
-    prompt, lyrics, meta = _resolve_generation_text(generic_args, "heroic fantasy song", "auto")
+    prompt, lyrics, meta, composition_plan = _resolve_generation_text(generic_args, "heroic fantasy song", "auto")
 
     assert lyrics is None
+    assert composition_plan is None
     assert "\n\nLyrics:\n" in prompt
     assert meta["generated_lyrics"] is True

@@ -34,6 +34,23 @@ auto-switch to the correct engine when it can.
 /run
 ```
 
+## Styles, instruments, and vocal traits
+
+Use style tags to steer instrumentation and vocal character without rewriting your entire prompt.
+
+```text
+/style saxophone, brushed drums, female vocalist, smoky jazz club
+/negative-style no autotune, no chipmunk voice
+/prompt a clean jazz arrangement with a clear chorus lift
+/run
+```
+
+Notes:
+
+- For `elevenlabs`, style tags are passed as a provider-neutral `composition_plan` (so it will run in plan mode).
+- For other engines, style tags are appended into the prompt text as lightweight “tags”.
+- This is **not** voice cloning or a guaranteed vocalist identity selector. For explicit voice selection / cloning, use AbstractVoice.
+
 ## Discover engines and models
 
 - `/engines` lists engines and their packaged default models.
@@ -103,6 +120,8 @@ down to the model maximum.
 /prompt <text|clear>
 /run
 /duration <seconds>
+/style <tags|clear>
+/negative-style <tags|clear>
 /steps <n|auto>
 /seed <n|auto>
 /format <wav|mp3|flac>
@@ -113,4 +132,3 @@ down to the model maximum.
 /params
 /exit
 ```
-

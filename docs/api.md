@@ -44,6 +44,26 @@ music = MusicManager(backend=backend, text_planner=planner, text_planner_mode="a
 asset = music.generate_audio("heroic fantasy", duration_s=30, planning=True)
 ```
 
+### Styles (instruments, vocal traits, mix notes)
+
+You can pass lightweight provider-neutral “style tags” that describe instruments, vocalist traits, or
+production notes.
+
+When present:
+
+- `elevenlabs` uses them as a provider-neutral `composition_plan`.
+- other engines fold `positive_styles` into the prompt text as additional tags.
+
+```python
+asset = music.generate_audio(
+    "smoky jazz with a clear hook",
+    duration_s=25,
+    planning=True,
+    positive_styles=["saxophone", "brushed drums", "female vocalist"],
+    negative_styles=["no autotune"],
+)
+```
+
 Planner providers can be callables accepting `request_dict`, objects with
 `plan_music_text(request_dict)`, or objects with `create_plan(MusicPlanningRequest)`. `auto` uses
 the provider when present and falls back to the deterministic local planner. `required` raises on

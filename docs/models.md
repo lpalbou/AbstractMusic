@@ -49,6 +49,9 @@ provider-specific model names when exposed by the service.
   audio-to-audio, CoreML/TFLite, and TensorRT are deferred. It has passed focused 30-second and
   120-second local validation runs at 16 steps, but it is not recommended until broader
   prompt/seed and GPU validation are complete.
+- `stabilityai/stable-audio-3-small-sfx`: gated Stable Audio 3 Small SFX checkpoint. It is exposed
+  through the same `stable-audio-3` backend and is intended for longer text-to-audio sound effects.
+  It is not recommended until it has dedicated SFX validation coverage.
 - `stabilityai/stable-audio-3-medium`: gated Stable Audio 3 Medium checkpoint, tracked behind
   `stable-audio-3` but not recommended until Small Music has broader validation. It is GPU-oriented
   and heavier than the Small model.
