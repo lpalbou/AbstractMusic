@@ -37,6 +37,8 @@ smoke-artifacts/
 
 # Local model/cache directories
 models/
+!/src/abstractmusic/vendor/stable_audio_open_min/models/
+!/src/abstractmusic/vendor/stable_audio_open_min/models/*.py
 !/src/abstractmusic/vendor/stable_audio3_min/models/
 !/src/abstractmusic/vendor/stable_audio3_min/models/*.py
 checkpoints/
