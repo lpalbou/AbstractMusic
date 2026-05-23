@@ -58,8 +58,6 @@ jobs:
       should_publish: ${{ steps.release-meta.outputs.should_publish }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -184,8 +182,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - name: Create annotated tag for manual releases
         if: github.event_name == 'workflow_dispatch'
         run: |
