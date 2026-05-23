@@ -49,10 +49,8 @@ code, artifact helpers, docs, CLI/plugin shells, provider metadata, and stdlib-o
 The base default is `acemusic`, which calls a configured hosted ACE Music-compatible API and does
 not install local ML libraries. The second remote client is `elevenlabs`, which is scoped to
 ElevenLabs Music endpoints only. Local model engines live behind explicit extras such as `acestep`,
-`acestep-v15`, `acestep-diffusers`, `stable-audio-3`, `diffusers`, `apple`, `gpu`,
-`all-apple`, and `all-gpu`.
-The `acestep` extra installs the supported local ACE-Step Diffusers provider; `acestep-v15` is the
-explicit quality-limited vendored v1.5 backend.
+`stable-audio-3`, `diffusers`, `apple`, `gpu`, `all-apple`, and `all-gpu`.
+The `acestep` extra installs the supported local ACE-Step provider.
 The `stable-audio-3` extra installs only the top-level libraries needed by the internal Small Music
 text-to-music path and intentionally excludes upstream Stable Audio runtime packages, UI, training,
 LoRA, Flash-Attn, and audio codec libraries.

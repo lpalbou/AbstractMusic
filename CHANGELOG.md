@@ -6,6 +6,26 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.12] - 2026-05-23
+
+### Changed
+
+- Collapsed the public ACE-Step surface to a single `acestep` backend backed by the package-owned
+  `AceStepPipeline` adapter and removed the old `acestep-v15` / `acestep-diffusers` backend split.
+- Removed vendored ACE-Step v1.5 model/runtime code from the package and kept local ACE-Step
+  execution on Hugging Face weights plus AbstractMusic-owned orchestration only.
+- Reduced the packaged ACE-Step discovery catalog to reviewed official checkpoints under the public
+  `acestep` backend and stopped surfacing unreviewed community conversions in the default model
+  registry.
+- Made AbstractCore music discovery report backend-oriented provider ids and only return
+  providers/models whose runtime is actually usable in the current environment.
+
+### Docs
+
+- Updated README, getting-started, API, models, troubleshooting, backlog overview, and
+  `llms-full.txt` for the single-backend ACE-Step contract and truthful discovery behavior.
+- Repaired the AI-readable docs index link to `ACKNOWLEDGMENTS.md`.
+
 ## [0.1.11] - 2026-05-21
 
 ### Changed

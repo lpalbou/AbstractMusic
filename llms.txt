@@ -24,7 +24,7 @@ generation backends, using the CLI/API, integrating with AbstractCore, and relea
 - [CONTRIBUTING.md](CONTRIBUTING.md): local development setup, test commands, backend contribution rules, and backlog process.
 - [SECURITY.md](SECURITY.md): vulnerability reporting policy.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): contributor behavior expectations.
-- [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md): upstream ecosystem and model-credit notes.
+- [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md): upstream ecosystem and model-credit notes.
 
 ## Design And Roadmap
 

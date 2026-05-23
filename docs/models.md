@@ -19,21 +19,14 @@ provider-specific model names when exposed by the service.
   with optional lyrics and composition plans. It calls only ElevenLabs Music endpoints; voice and
   text-to-speech belong in AbstractVoice. Live use may require a paid Music-enabled ElevenLabs
   account tier.
-- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the local `acestep` /
-  `acestep-diffusers` local backend, MIT, text-to-music with lyrics. This path uses Diffusers
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended through the local `acestep` backend,
+  MIT, text-to-music with lyrics. This path uses Diffusers
   AceStepPipeline, Hugging Face checkpoint files, and package-owned orchestration without an
   external ACE-Step source tree or package. On Apple MPS, AbstractMusic avoids fp16 denoising
   overflow by preferring MPS bfloat16 when supported and MPS float32 otherwise; CPU float32 remains
   the final fallback if MPS returns non-finite audio.
-  The same backend can also target compatible community Diffusers conversions by passing
-  `--model-id` (see below).
-- `ACE-Step/Ace-Step1.5`: explicit `acestep-v15` backend, MIT, text-to-music with lyrics. This
-  path uses vendored ACE-Step model code and package-owned orchestration without an external
-  ACE-Step source tree or package, but it is quality-limited after repeated-loop validation
-  failures.
-  The experimental 5Hz audio-code planner is opt-in because coarse code hints can imprint
-  repetitive artifacts. The default turbo DiT does not use CFG, so
-  `guidance_scale` is treated as unsupported unless a non-turbo DiT is explicitly configured.
+  The same backend can also target other trained AceStepPipeline-compatible checkpoints by passing
+  `--model-id`, but discovery only surfaces reviewed models.
 - `facebook/musicgen-small`: 300M text-to-music model through Transformers, CC BY-NC 4.0. This is
   configured as the optional `musicgen` backend and remains the best small validation candidate
   because its inference path is straightforward and model family is established, but the weights
@@ -65,20 +58,23 @@ provider-specific model names when exposed by the service.
 - `Dalision/Omni2Sound`: CC BY-NC 4.0 multimodal audio generation, not suitable as a default
   commercial-capable music provider.
 
-## Community ACE-Step Diffusers Conversions
+## ACE-Step Scope
 
-The model registry also tracks a small set of community Diffusers conversions (hosted by Runware)
-so you can test smaller/alternate ACE-Step DiT variants using the same `acestep-diffusers` backend:
+The public ACE-Step contract is one backend, `acestep`, plus a model id. The reviewed discovery
+catalog currently surfaces these official ACE-Step checkpoints:
 
-- `Runware/acestep-v15-turbo-diffusers`
-- `Runware/acestep-v15-base-diffusers`
-- `Runware/acestep-v15-sft-diffusers`
-- `Runware/acestep-v15-xl-turbo-diffusers`
-- `Runware/acestep-v15-xl-base-diffusers`
-- `Runware/acestep-v15-xl-sft-diffusers`
+- `ACE-Step/Ace-Step1.5`
+- `ACE-Step/acestep-v15-base`
+- `ACE-Step/acestep-v15-sft`
+- `ACE-Step/acestep-v15-xl-turbo-diffusers`
 
-These are not treated as reviewed or recommended models. Validate prompts, seeds, and quality gates
-locally before using them in production.
+The validated default remains `ACE-Step/acestep-v15-xl-turbo-diffusers`.
+
+The 5 Hz language-model checkpoints such as `ACE-Step/acestep-5Hz-lm-0.6B` are not surfaced in the
+music picker because they are planner/code models, not direct end-to-end music generation models.
+
+If you want to try other trained ACE-Step checkpoints, pass the Hugging Face repo id explicitly and
+validate the result locally before treating it as supported.
 
 ## Precision Rule
 

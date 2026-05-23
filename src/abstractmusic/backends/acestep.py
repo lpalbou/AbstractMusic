@@ -1,5 +1,5 @@
 """
-ACE-Step Diffusers backend.
+ACE-Step backend.
 
 This adapter is intentionally ACE-Step-specific. The generic Diffusers audio
 backend cannot safely infer ACE-Step's `audio_duration`, `lyrics`, and
@@ -22,13 +22,44 @@ from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
 
+def _acestep_variant(model_id: str) -> str:
+    text = str(model_id or "").strip().lower()
+    if text.endswith("/ace-step1.5") or "ace-step1.5" in text:
+        return "turbo"
+    if "turbo" in text:
+        return "turbo"
+    if "sft" in text:
+        return "sft"
+    if "base" in text:
+        return "base"
+    return "unknown"
+
+
+def _default_num_inference_steps(model_id: str) -> int:
+    variant = _acestep_variant(model_id)
+    if variant == "turbo":
+        return 8
+    if variant in {"base", "sft"}:
+        return 50
+    return 8
+
+
+def _default_guidance_scale(model_id: str) -> Optional[float]:
+    variant = _acestep_variant(model_id)
+    if variant == "turbo":
+        return 1.0
+    if variant in {"base", "sft"}:
+        return 7.0
+    return None
+
+
 def _lazy_import_torch():
     try:
         import torch  # type: ignore
     except Exception as e:  # pragma: no cover
         raise OptionalDependencyMissingError(
             "Optional dependency missing (or failed to import): torch. Install with the appropriate "
-            "local generation extra, for example: pip install 'abstractmusic[acestep-diffusers]'."
+            "local generation extra, for example: pip install 'abstractmusic[acestep]'."
         ) from e
     return torch
 
@@ -39,7 +70,7 @@ def _lazy_import_numpy():
     except Exception as e:  # pragma: no cover
         raise OptionalDependencyMissingError(
             "Optional dependency missing (or failed to import): numpy. Install with the appropriate "
-            "local generation extra, for example: pip install 'abstractmusic[acestep-diffusers]'."
+            "local generation extra, for example: pip install 'abstractmusic[acestep]'."
         ) from e
     return np
 
@@ -50,7 +81,7 @@ def _lazy_import_acestep_pipeline():
     except Exception as e:  # pragma: no cover
         raise OptionalDependencyMissingError(
             "Optional dependency missing (or failed to import): diffusers. Install with the appropriate "
-            "local generation extra, for example: pip install 'abstractmusic[acestep-diffusers]'."
+            "local generation extra, for example: pip install 'abstractmusic[acestep]'."
         ) from e
     pipe_cls = getattr(diffusers, "AceStepPipeline", None)
     if pipe_cls is None:
@@ -127,7 +158,7 @@ def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
             )
             return torch_mod.float32
         print(
-            "WARNING #FALLBACK : bfloat16 is not a supported ACE-Step Diffusers dtype on this device; "
+            "WARNING #FALLBACK : bfloat16 is not a supported ACE-Step dtype on this device; "
             "using float32.",
             file=sys.stderr,
         )
@@ -135,14 +166,14 @@ def _resolve_dtype(torch_mod: Any, dtype: str, *, device: str) -> Any:
     if d in {"float16", "fp16"}:
         if dev == "cpu":
             print(
-                "WARNING #FALLBACK : float16 on CPU is not reliable for ACE-Step Diffusers; using float32.",
+                "WARNING #FALLBACK : float16 on CPU is not reliable for ACE-Step; using float32.",
                 file=sys.stderr,
             )
             return torch_mod.float32
         if dev == "mps":
             print(
-                "WARNING #FALLBACK : ACE-Step Diffusers float16 on MPS can overflow during transformer "
-                "denoising; non-finite output will retry with bfloat16 or float32.",
+                "WARNING #FALLBACK : ACE-Step float16 on MPS can overflow during transformer denoising; "
+                "non-finite output will retry with bfloat16 or float32.",
                 file=sys.stderr,
             )
         return torch_mod.float16
@@ -181,7 +212,7 @@ def _encode_wav_bytes(audio: Any, *, sample_rate: int) -> bytes:
     elif x.ndim != 2:
         raise ValueError("Unsupported audio array shape after coercion")
     if not bool(np.isfinite(x).all()):
-        raise ValueError("ACE-Step Diffusers pipeline returned non-finite audio")
+        raise ValueError("AceStepPipeline returned non-finite audio")
     x = np.clip(x, -1.0, 1.0)
     pcm = (x * 32767.0).astype("<i2", copy=False)
 
@@ -195,15 +226,16 @@ def _encode_wav_bytes(audio: Any, *, sample_rate: int) -> bytes:
 
 
 @dataclass(frozen=True)
-class AceStepDiffusersBackendConfig:
+class AceStepBackendConfig:
     model_id: str = "ACE-Step/acestep-v15-xl-turbo-diffusers"
     device: str = "auto"
     torch_dtype: str = "auto"
-    num_inference_steps: int = 8
+    num_inference_steps: Optional[int] = None
     duration_s: float = 10.0
     vocal_language: str = "en"
     guidance_scale: Optional[float] = None
     shift: Optional[float] = 3.0
+    revision: Optional[str] = None
     enable_vae_tiling: bool = True
     auto_retry_cpu_on_mps_error: bool = True
     local_files_only: bool = True
@@ -212,12 +244,12 @@ class AceStepDiffusersBackendConfig:
         object.__setattr__(self, "model_id", require_hf_repo_id(self.model_id, field_name="model_id"))
 
 
-class AceStepDiffusersBackend:
-    """Local ACE-Step XL Turbo backend powered by Diffusers AceStepPipeline."""
+class AceStepBackend:
+    """Local ACE-Step backend powered by Diffusers AceStepPipeline."""
 
-    backend_id = "abstractmusic:acestep-diffusers"
+    backend_id = "abstractmusic:acestep"
 
-    def __init__(self, *, config: AceStepDiffusersBackendConfig) -> None:
+    def __init__(self, *, config: AceStepBackendConfig) -> None:
         self._config = config
         self._pipe = None
         self._pipe_device = None
@@ -265,7 +297,7 @@ class AceStepDiffusersBackend:
             license="MIT",
             commercial_allowed=True,
             official_8bit_available=False,
-            preferred_precision="official bf16/fp16 Diffusers checkpoint; no official 8-bit artifact reviewed",
+            preferred_precision="official AceStepPipeline-compatible checkpoint; no official 8-bit artifact reviewed",
         )
 
     def _load_pipe(self):
@@ -277,11 +309,13 @@ class AceStepDiffusersBackend:
         device = _resolve_device(torch, self._config.device)
         dtype = _resolve_dtype(torch, self._config.torch_dtype, device=device)
 
-        pipe = pipe_cls.from_pretrained(
-            str(self._config.model_id),
-            torch_dtype=dtype,
-            local_files_only=bool(self._config.local_files_only),
-        )
+        load_kwargs: Dict[str, Any] = {
+            "torch_dtype": dtype,
+            "local_files_only": bool(self._config.local_files_only),
+        }
+        if isinstance(self._config.revision, str) and self._config.revision.strip():
+            load_kwargs["revision"] = str(self._config.revision).strip()
+        pipe = pipe_cls.from_pretrained(str(self._config.model_id), **load_kwargs)
         to_fn = getattr(pipe, "to", None)
         if callable(to_fn):
             pipe = to_fn(device)
@@ -302,7 +336,7 @@ class AceStepDiffusersBackend:
 
     def generate_audio(self, request: AudioGenerationRequest) -> GeneratedAsset:
         if request.negative_prompt:
-            raise ValueError("ACE-Step Diffusers XL Turbo does not support negative_prompt.")
+            raise ValueError("ACE-Step does not support negative_prompt.")
 
         torch = _lazy_import_torch()
         pipe = self._load_pipe()
@@ -318,6 +352,8 @@ class AceStepDiffusersBackend:
             int(request.num_inference_steps)
             if request.num_inference_steps is not None
             else int(self._config.num_inference_steps)
+            if self._config.num_inference_steps is not None
+            else _default_num_inference_steps(self._config.model_id)
         )
         vocal_language = str(request.vocal_language or self._config.vocal_language or "en")
         lyrics = str(request.lyrics or "")
@@ -329,7 +365,13 @@ class AceStepDiffusersBackend:
             "vocal_language": vocal_language,
             "num_inference_steps": int(steps),
         }
-        guidance_scale = request.guidance_scale if request.guidance_scale is not None else self._config.guidance_scale
+        guidance_scale = (
+            request.guidance_scale
+            if request.guidance_scale is not None
+            else self._config.guidance_scale
+            if self._config.guidance_scale is not None
+            else _default_guidance_scale(self._config.model_id)
+        )
         if guidance_scale is not None:
             kwargs["guidance_scale"] = float(guidance_scale)
         if self._config.shift is not None:
@@ -372,7 +414,7 @@ class AceStepDiffusersBackend:
             is_known_mps_limit = "Output channels > 65536 not supported at the MPS device" in msg
             if is_mps and is_known_mps_limit and bool(self._config.auto_retry_cpu_on_mps_error):
                 print(
-                    "WARNING #FALLBACK : PyTorch MPS limitation in ACE-Step Diffusers decode. "
+                    "WARNING #FALLBACK : PyTorch MPS limitation in ACE-Step decode. "
                     "Retrying on CPU with torch_dtype=float32.",
                     file=sys.stderr,
                 )
@@ -406,7 +448,7 @@ class AceStepDiffusersBackend:
                 if current_dtype != target_dtype:
                     dtype_name = "bfloat16" if target_dtype == str(torch.bfloat16) else "float32"
                     print(
-                        "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
+                        "WARNING #FALLBACK : ACE-Step produced non-finite audio on MPS; "
                         f"retrying on MPS {dtype_name}.",
                         file=sys.stderr,
                     )
@@ -415,8 +457,7 @@ class AceStepDiffusersBackend:
                     kwargs = _refresh_generator(kwargs, device_name="mps")
                 else:
                     print(
-                        "WARNING #FALLBACK : ACE-Step Diffusers produced non-finite audio on MPS; "
-                        "retrying on CPU float32.",
+                        "WARNING #FALLBACK : ACE-Step produced non-finite audio on MPS; retrying on CPU float32.",
                         file=sys.stderr,
                     )
                     fallback_events.append("mps_nonfinite_audio_cpu_retry")

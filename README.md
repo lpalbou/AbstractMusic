@@ -30,9 +30,7 @@ Install a local runtime profile when you want in-process model generation:
 
 ```bash
 pip install "abstractmusic[remote]"  # no-op alias; base install already contains remote clients
-pip install "abstractmusic[acestep]"  # local ACE-Step Diffusers path
-pip install "abstractmusic[acestep-v15]"  # explicit quality-limited ACE-Step v1.5 path
-pip install "abstractmusic[acestep-diffusers]"
+pip install "abstractmusic[acestep]"  # local ACE-Step path
 pip install "abstractmusic[stable-audio-3]"  # internal Stable Audio 3 runtime, gated HF weights
 pip install "abstractmusic[apple]"
 pip install "abstractmusic[gpu]"
@@ -73,24 +71,12 @@ open("out.mp3", "wb").write(mp3_bytes)
 
 ```python
 from abstractmusic import MusicManager
-from abstractmusic.backends import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+from abstractmusic.backends import AceStepBackend, AceStepBackendConfig
 
-backend = AceStepDiffusersBackend(config=AceStepDiffusersBackendConfig())
+backend = AceStepBackend(config=AceStepBackendConfig())
 
 mm = MusicManager(backend=backend)
 wav_bytes = mm.t2m("uplifting synthwave with punchy drums", duration_s=10.0)
-open("out.wav", "wb").write(wav_bytes)
-```
-
-The explicit quality-limited ACE-Step v1.5 backend can also be selected through the same public abstraction:
-
-```python
-from abstractmusic import MusicManager
-from abstractmusic.backends import AceStepV15Backend, AceStepV15BackendConfig
-
-backend = AceStepV15Backend(config=AceStepV15BackendConfig())
-mm = MusicManager(backend=backend)
-wav_bytes = mm.t2m("upbeat synthwave instrumental", duration_s=10.0)
 open("out.wav", "wb").write(wav_bytes)
 ```
 
@@ -135,8 +121,7 @@ open("jazz.wav", "wb").write(wav_bytes)
   also request MP3 or FLAC.
 - Local model weights are resolved through the default Hugging Face cache on first use (same workflow as Diffusers-based vision).
 - Local `model_id` selectors must be Hugging Face repo ids. Local checkpoint directories and custom cache-dir overrides are intentionally not supported.
-- The local ACE-Step path is `acestep` / `acestep-diffusers`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
-- `acestep-v15` remains explicit and quality-limited after repeated-loop validation failures.
+- The local ACE-Step path is `acestep`, which uses package-owned orchestration around Diffusers AceStepPipeline and Hugging Face checkpoint files rather than an external ACE-Step source tree.
 - `musicgen`, `stable-audio`, and `stable-audio-3` are optional local comparison/generation
   backends; they are not default providers.
 - Stable Audio Open Small uses AbstractMusic-vendored `stable-audio-tools==0.0.19` model code and an internal minimal inference loop; you do not need to install the upstream `stable-audio-tools` package.
@@ -145,7 +130,6 @@ open("jazz.wav", "wb").write(wav_bytes)
   Stable Audio checkout. Model terms must be accepted on Hugging Face. The current implementation
   has passed focused 30-second and 120-second Small Music validation runs; broader prompt/seed and
   GPU validation are still required before it is marked recommended.
-- The standalone `acestep-v15` backend vendors the checkpoint’s custom Transformers model code into `abstractmusic` so we do **not** use `trust_remote_code` there.
 - Known model/provider metadata is packaged in `src/abstractmusic/assets/music_model_capabilities.json`.
   See `docs/models.md` for the reviewed model list and precision policy.
 - Full documentation starts at `docs/README.md`, including setup, API, architecture, models,
@@ -165,8 +149,6 @@ abstractmusic --backend elevenlabs t2m "upbeat pop song" --lyrics auto --composi
 
 # One-shot local generation
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
-abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wav --duration 10
-abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
@@ -224,8 +206,8 @@ bright melodic synth pop loop with steady drums
 ```
 
 Set duration either at startup (`abstractmusic repl --duration 30`) or inside the REPL
-(`/duration 30`). ACE-Step v1.5 expects 10-600 seconds. Add `--verbose` or use `/verbose on` only
-when you want backend logs and progress bars.
+(`/duration 30`). Add `--verbose` or use `/verbose on` only when you want backend logs and
+progress bars.
 For generations of 45 seconds or more, `--structure-prompt` is enabled by default and adds a compact
 intro/build/bridge/climax/outro section map to the caption. Use `--no-structure-prompt` or
 `/structure-prompt off` to pass long prompts through unchanged.
@@ -254,7 +236,10 @@ does not receive raw provider objects, and keeps the deterministic fallback for 
 
 The AbstractCore plugin also exposes lightweight music discovery methods (`available_providers`,
 `list_models`, `list_provider_models`, `list_operations`, and `capability_catalog`) from packaged
-metadata. These methods are import-light and must not instantiate model runtimes.
+metadata. Discovery uses backend-oriented provider ids such as `acemusic`, `elevenlabs`,
+`acestep`, `stable-audio`, and `stable-audio-3`, and only reports providers/models whose runtime
+is usable in the current environment. These methods are import-light and must not instantiate model
+runtimes.
 
 ## Licensing note
 
@@ -262,8 +247,7 @@ metadata. These methods are import-light and must not instantiate model runtimes
   terms for generated-output rights and provider-side model licensing.
 - The `elevenlabs` backend calls ElevenLabs Music only. ElevenLabs voice/TTS belongs in
   AbstractVoice. ElevenLabs Music API access may require a paid Music-enabled account tier.
-- The local ACE-Step example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned adapter.
-- The vendored standalone ACE-Step model code files carry **Apache-2.0** headers (both permissive).
+- The local ACE-Step example uses **ACE-Step Diffusers XL Turbo** (`ACE-Step/acestep-v15-xl-turbo-diffusers`), tagged `license:mit` on Hugging Face, through the package-owned `acestep` adapter.
 - `facebook/musicgen-small` is exposed through `--backend musicgen`; its model weights are **CC BY-NC 4.0**, so it is a non-commercial validation backend.
 - `stabilityai/stable-audio-open-small` is exposed through `--backend stable-audio`; it is gated on Hugging Face and uses the **Stability AI Community License**.
 - `stabilityai/stable-audio-3-small-music` is exposed through `--backend stable-audio-3`;
@@ -286,7 +270,7 @@ publisher metadata for `release.yml` and GitHub Pages source as GitHub Actions.
 
 ### macOS / Apple Silicon note (MLX/MPS)
 
-On Apple systems, the local `acestep` / `acestep-diffusers` path tries PyTorch MPS first. ACE-Step
+On Apple systems, the local `acestep` path tries PyTorch MPS first. ACE-Step
 Diffusers fp16 can overflow during transformer denoising on MPS, so the automatic dtype prefers MPS
 bfloat16 when supported and MPS float32 otherwise. CPU float32 is only the final fallback when MPS
 still returns non-finite audio.
@@ -295,16 +279,10 @@ Some Diffusers audio pipelines can fail on the `mps` device due to PyTorch backe
 `abstractmusic` will **retry on CPU** with a clear warning (`#FALLBACK`) when it detects the known MPS channel-limit error.
 To force CPU directly, use `--device cpu`.
 
-For the explicit `acestep-v15` PyTorch/MPS path, `abstractmusic` defaults to **fp16** (bf16 disabled) to keep memory usage reasonable on typical unified-memory Macs.
 If you run into numerical issues, you can override with `--dtype float32` (at the cost of significantly higher memory use).
-The standalone path caps MPS memory to ~16 GiB by setting `PYTORCH_MPS_HIGH_WATERMARK_RATIO` (configurable via `--mps-max-memory-gb` or `--mps-high-watermark-ratio`).
-In addition, standalone ACE-Step text-encoder conditioning is executed on **CPU float32** on MPS builds as a compatibility fallback (`#FALLBACK`) to avoid known mixed-dtype MPSGraph kernel aborts; conditioning tensors are cast back to the model dtype/device before diffusion.
-The standalone ACE-Step backend keeps turbo controls at `infer_method=ode`, `steps=8`, `shift=3.0`, but uses seeded random source latents for direct text-to-music to avoid silence-conditioned tone collapse.
-The experimental 5Hz LM audio-code planner is off by default because using coarse code hints as full cover conditioning can imprint repetitive artifacts.
-If a standalone run returns non-finite latents, `abstractmusic` retries once with the alternate infer method using an incremented seed (`#FALLBACK`) instead of writing a silent/invalid WAV.
-
-For instrumental standalone ACE-Step runs, pass lyrics as `[Instrumental]`.
-Standalone decoded waveforms are DC-centered before normalization to avoid one-sided/noisy artifacts from amplifying tiny decoder bias.
+The `acestep` backend now follows checkpoint-specific defaults: turbo checkpoints use 8 steps with
+guidance effectively off, while base and SFT checkpoints should usually run around 50 steps with
+guidance enabled. If you need instrumental output, pass lyrics as `[Instrumental]`.
 
 Upstream references:
 - PyTorch MPS env var `PYTORCH_ENABLE_MPS_FALLBACK=1` (fallback to CPU when an op is unsupported): `https://docs.pytorch.org/docs/stable/mps_environment_variables.html`

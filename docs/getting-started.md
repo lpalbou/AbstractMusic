@@ -25,9 +25,7 @@ Install a local runtime profile when you want in-process generation:
 
 ```bash
 pip install "abstractmusic[remote]"  # no-op alias; base install already supports remote clients
-pip install "abstractmusic[acestep]"  # local ACE-Step Diffusers path
-pip install "abstractmusic[acestep-v15]"  # explicit quality-limited ACE-Step v1.5 path
-pip install "abstractmusic[acestep-diffusers]"
+pip install "abstractmusic[acestep]"  # local ACE-Step path
 pip install "abstractmusic[all-apple]"
 pip install "abstractmusic[all-gpu]"
 pip install "abstractmusic[musicgen]"
@@ -41,7 +39,7 @@ need to install the upstream `stable-audio-tools` package.
 
 The `stable-audio-3` extra installs only the top-level runtime libraries needed by
 AbstractMusic's internal Stable Audio 3 text-to-music path: Torch, Transformers, Safetensors,
-Hugging Face Hub, NumPy, Einops, and Packaging. It does not install or import the upstream
+Hugging Face Hub, NumPy, and Einops. It does not install or import the upstream
 `stable_audio_3` package, `stable-audio-tools`, UI, training, LoRA, CoreML/TFLite, or
 Flash-Attention dependencies.
 
@@ -79,8 +77,6 @@ abstractmusic --backend acemusic t2m "ambient lo-fi study music" --format mp3 --
 abstractmusic --backend elevenlabs t2m "cinematic instrumental synth cue" --format mp3 --out out.mp3 --duration 30
 abstractmusic --backend elevenlabs t2m "upbeat pop song" --lyrics auto --composition-mode plan --format mp3 --out out.mp3 --duration 30
 abstractmusic --backend acestep t2m "ambient lo-fi study music" --out out.wav --duration 10
-abstractmusic --backend acestep-v15 t2m "ambient lo-fi study music" --out out.wav --duration 10
-abstractmusic --backend acestep-diffusers t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend musicgen t2m "ambient lo-fi study music" --out out.wav --duration 10
 abstractmusic --backend stable-audio t2m "short ambient synth loop" --out out.wav --duration 10
 abstractmusic --backend stable-audio-3 t2m "rhythmic space shooter game music" --out out.wav --duration 30 --steps 16
@@ -137,26 +133,22 @@ bright melodic synth pop loop with steady drums
 ```
 
 Engines currently exposed through the unified CLI are `acemusic`, `elevenlabs`, `acestep`,
-`acestep-diffusers`, `acestep-v15`, `diffusers`, `musicgen`, `stable-audio`, and
-`stable-audio-3`. `acemusic` is the default lightweight remote backend and accepts aliases such as `remote` and `ace-music`.
+`diffusers`, `musicgen`, `stable-audio`, and `stable-audio-3`. `acemusic` is the default lightweight remote backend and accepts aliases such as `remote` and `ace-music`.
 `elevenlabs` accepts aliases such as `eleven` and `11labs` and only uses ElevenLabs Music APIs.
-`acestep` and `ace` are aliases for the validated `acestep-diffusers` backend. `musicgen` is a small
+`acestep` and `ace` select the supported ACE-Step backend. `musicgen` is a small
 non-commercial validation backend. `stable-audio` is gated on Hugging Face and supports short
 clips up to 11 seconds. `stable-audio-3` targets `stabilityai/stable-audio-3-small-music` through
 AbstractMusic-owned internal runtime code and currently supports text-to-music only.
 
 The local ACE-Step backend is package-owned: it uses Diffusers AceStepPipeline, Hugging Face
-weights, and AbstractMusic orchestration without an external ACE-Step source tree. The explicit
-`acestep-v15` backend uses vendored model code but is quality-limited after repeated-loop
-validation failures.
+weights, and AbstractMusic orchestration without an external ACE-Step source tree.
 
 For ACE-Step turbo checkpoints, keep `/shift 3` with `/steps 8` unless deliberately testing a
 quality issue. The turbo schedule is tuned around `shift=3.0`; `shift=1.0` with 8 steps
 can produce collapsed or overly repetitive output.
 
 Duration can be set when starting the REPL (`abstractmusic cli --duration 30`) or during a session
-with `/duration 30`. ACE-Step v1.5 constrains generation to 10-600 seconds; values below 10 seconds
-are not a reliable smoke target for that backend.
+with `/duration 30`.
 
 ## Real Model Caveat
 

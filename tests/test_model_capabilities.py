@@ -15,6 +15,8 @@ def test_music_model_registry_contains_reviewed_models():
     assert "acemusic/ace-step-api" in ids
     assert "elevenlabs/music_v1" in ids
     assert "ACE-Step/Ace-Step1.5" in ids
+    assert "ACE-Step/acestep-v15-base" in ids
+    assert "ACE-Step/acestep-v15-sft" in ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in ids
     assert "facebook/musicgen-small" in ids
     assert "stabilityai/stable-audio-open-small" in ids
@@ -142,24 +144,7 @@ def test_stable_audio3_registry_metadata():
 
 
 @pytest.mark.unit
-def test_acestep_v15_registry_tracks_quality_limited_standalone_backend():
-    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
-
-    spec = MusicModelCapabilitiesRegistry().get("ACE-Step/Ace-Step1.5")
-
-    assert spec.recommended is False
-    assert spec.status == "quality-limited-standalone-v15"
-    assert spec.backend_kinds[0] == "acestep-v15"
-    assert spec.supports_guidance_scale is False
-    assert spec.supports_negative_prompt is False
-    assert spec.dependency_extra == "acestep"
-    assert "`acestep-v15`" in spec.notes
-    assert "external ACE-Step source tree or package" in spec.notes
-    assert "5Hz LM audio-code planner is opt-in" in spec.notes
-
-
-@pytest.mark.unit
-def test_acestep_diffusers_registry_tracks_default_route():
+def test_acestep_registry_tracks_supported_route():
     from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
 
     spec = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-xl-turbo-diffusers")
@@ -167,9 +152,30 @@ def test_acestep_diffusers_registry_tracks_default_route():
     assert spec.recommended is True
     assert spec.default_for_backend is True
     assert spec.status == "validated-mps-bf16-cpu-fallback"
-    assert spec.backend_kinds[0] == "acestep-diffusers"
-    assert spec.dependency_extra == "acestep-diffusers"
-    assert "Local `acestep` route" in spec.notes
+    assert spec.backend_kinds[0] == "acestep"
+    assert spec.dependency_extra == "acestep"
+    assert "Public `acestep` catalog entry" in spec.notes
+
+    turbo = MusicModelCapabilitiesRegistry().get("ACE-Step/Ace-Step1.5")
+    assert turbo.backend_kinds[0] == "acestep"
+    assert turbo.dependency_extra == "acestep"
+    assert turbo.status == "official-pipeline-compatible-unvalidated"
+
+    base = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-base")
+    assert base.backend_kinds[0] == "acestep"
+    assert base.supports_guidance_scale is True
+
+    sft = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-sft")
+    assert sft.backend_kinds[0] == "acestep"
+    assert sft.supports_guidance_scale is True
+
+
+@pytest.mark.unit
+def test_acestep_catalog_does_not_surface_unreviewed_community_conversions():
+    from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
+
+    ids = {m.id for m in MusicModelCapabilitiesRegistry().list_models()}
+    assert not any(model_id.startswith("Runware/acestep-") for model_id in ids)
 
 
 @pytest.mark.unit
@@ -186,8 +192,7 @@ def test_registry_tracks_default_models_for_cli_engines():
 
     assert defaults.get("acemusic") == ["acemusic/ace-step-api"]
     assert defaults.get("elevenlabs") == ["elevenlabs/music_v1"]
-    assert defaults.get("acestep-diffusers") == ["ACE-Step/acestep-v15-xl-turbo-diffusers"]
-    assert defaults.get("acestep-v15") == ["ACE-Step/Ace-Step1.5"]
+    assert defaults.get("acestep") == ["ACE-Step/acestep-v15-xl-turbo-diffusers"]
     assert defaults.get("musicgen") == ["facebook/musicgen-small"]
     assert defaults.get("stable-audio") == ["stabilityai/stable-audio-open-small"]
     assert defaults.get("stable-audio-3") == ["stabilityai/stable-audio-3-small-music"]
@@ -236,8 +241,6 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
     extras = data["project"]["optional-dependencies"]
     for extra in [
         "acestep",
-        "acestep-v15",
-        "acestep-diffusers",
         "diffusers",
         "remote",
         "local",
@@ -253,7 +256,7 @@ def test_pyproject_keeps_heavy_runtime_deps_out_of_base():
         assert extra in extras
     assert any(str(dep).startswith("torch") for dep in extras["acestep"])
     assert any(str(dep).startswith("mlx-lm") for dep in extras["apple"])
-    assert any(str(dep).startswith("diffusers") for dep in extras["acestep-diffusers"])
+    assert any(str(dep).startswith("diffusers") for dep in extras["acestep"])
     assert extras["remote"] == []
     assert any(str(dep).startswith("torchaudio") for dep in extras["all-apple"])
     assert any(str(dep).startswith("alias-free-torch") for dep in extras["all-gpu"])

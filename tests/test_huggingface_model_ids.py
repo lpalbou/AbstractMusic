@@ -1,7 +1,6 @@
 import pytest
 
-from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackendConfig
-from abstractmusic.backends.acestep_v15 import AceStepV15BackendConfig
+from abstractmusic.backends.acestep import AceStepBackendConfig
 from abstractmusic.backends.diffusers_audio import DiffusersAudioBackendConfig
 from abstractmusic.backends.musicgen import MusicGenBackendConfig
 from abstractmusic.backends.stable_audio import StableAudioBackendConfig
@@ -17,8 +16,8 @@ from abstractmusic.backends.stable_audio_3 import StableAudio3BackendConfig
             id="diffusers-audio",
         ),
         pytest.param(
-            lambda: AceStepDiffusersBackendConfig(model_id="./local-model"),
-            id="acestep-diffusers",
+            lambda: AceStepBackendConfig(model_id="./local-model"),
+            id="acestep",
         ),
         pytest.param(
             lambda: MusicGenBackendConfig(model_id="./local-model"),
@@ -31,14 +30,6 @@ from abstractmusic.backends.stable_audio_3 import StableAudio3BackendConfig
         pytest.param(
             lambda: StableAudio3BackendConfig(model_id="./local-model"),
             id="stable-audio-3",
-        ),
-        pytest.param(
-            lambda: AceStepV15BackendConfig(repo_id="./local-model"),
-            id="acestep-v15-primary",
-        ),
-        pytest.param(
-            lambda: AceStepV15BackendConfig(lm_fallback_repo_id="./local-model"),
-            id="acestep-v15-fallback",
         ),
     ],
 )

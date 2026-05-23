@@ -137,7 +137,7 @@ def test_injected_music_text_planner_is_used_in_auto_mode():
                 "extra_note": "kept in raw",
             }
 
-    request = MusicPlanningRequest(prompt="heroic fantasy", duration_s=30, backend="acestep-diffusers")
+    request = MusicPlanningRequest(prompt="heroic fantasy", duration_s=30, backend="acestep")
     plan = create_music_prompt_plan(request, provider=Planner(), mode="auto")
     compiled = compile_music_prompt_plan(plan, backend="diffusers", native_lyrics_supported=False)
 
@@ -201,7 +201,7 @@ def test_cli_resolves_generation_text_for_acestep_and_generic_backend(capsys):
     from abstractmusic.cli import _resolve_generation_text
 
     ace_args = argparse.Namespace(
-        backend="acestep-diffusers",
+        backend="acestep",
         duration=30.0,
         vocal_language="en",
         bpm=None,

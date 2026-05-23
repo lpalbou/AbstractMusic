@@ -28,29 +28,17 @@ def test_real_generation_wav_is_valid_and_music_like():
     steps_raw = os.environ.get("ABSTRACTMUSIC_REAL_STEPS")
     steps = int(steps_raw) if steps_raw else None
 
-    if backend_kind in {"acestep", "acestep-v15", "legacy"}:
-        from abstractmusic.backends.acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
+    if backend_kind == "acestep":
+        from abstractmusic.backends.acestep import AceStepBackend, AceStepBackendConfig
 
-        backend = AceStepV15Backend(
-            config=AceStepV15BackendConfig(
-                repo_id=model_id or "ACE-Step/Ace-Step1.5",
-                device=device,
-                torch_dtype=dtype,
-                vae_torch_dtype=dtype,
-                default_duration_s=duration,
-                fix_nfe=steps or 8,
-            )
-        )
-    elif backend_kind == "acestep-diffusers":
-        from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
-
-        backend = AceStepDiffusersBackend(
-            config=AceStepDiffusersBackendConfig(
+        backend = AceStepBackend(
+            config=AceStepBackendConfig(
                 model_id=model_id or "ACE-Step/acestep-v15-xl-turbo-diffusers",
                 device=device,
                 torch_dtype=dtype,
                 duration_s=duration,
                 num_inference_steps=steps or 8,
+                revision=str(os.environ.get("ABSTRACTMUSIC_REAL_REVISION", "")).strip() or None,
             )
         )
     else:

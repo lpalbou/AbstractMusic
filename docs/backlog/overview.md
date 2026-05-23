@@ -3,11 +3,11 @@
 ## Current status
 
 AbstractMusic has a thin public manager, a minimal backend protocol, stdlib-only ACE Music and
-ElevenLabs Music remote backends, a generic Diffusers audio backend, a standalone ACE-Step v1.5
-backend, an ACE-Step Diffusers adapter, an internal Stable Audio 3 Small Music spike, and an
-AbstractCore capability plugin. The ACE-Step paths must not call a local ACE-Step source checkout
-or external ACE-Step package, and the Stable Audio 3 path must not import or wrap the upstream
-Stable Audio runtime package.
+ElevenLabs Music remote backends, a generic Diffusers audio backend, a single public ACE-Step
+backend built on `AceStepPipeline`, an internal Stable Audio 3 Small Music spike, and an
+AbstractCore capability plugin. The ACE-Step path must not call a local ACE-Step source checkout or
+external ACE-Step package, and the Stable Audio 3 path must not import or wrap the upstream Stable
+Audio runtime package.
 
 The repository has the baseline docs, hygiene files, import-light packaging, a model registry, a
 CLI REPL, and a real smoke validation harness. Previous external-runtime experiments are no longer
@@ -16,7 +16,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 ## Status counts
 
 - Planned: 2
-- Proposed: 2
+- Proposed: 3
 - Completed: 12
 - Deprecated: 5
 - Recurrent: 2
@@ -48,10 +48,10 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-15 | `completed/010_repo_hygiene_docs_and_packaging.md` | Added repo/docs baseline, license/security/contribution files, ignore rules, and cleaned generated tracked artifacts. |
 | 2026-05-15 | `completed/020_music_abstraction_and_capability_registry.md` | Added capability types, request fields, backend capability hooks, packaged model registry, and registry tests. |
 | 2026-05-15 | `completed/040_real_generation_validation_matrix.md` | Added opt-in real generation tests and tightened WAV/music-likeness inspection after a short MPS smoke failed listening review. |
-| 2026-05-21 | `completed/030_acestep_diffusers_xl_provider.md` | Added and validated the dedicated ACE-Step Diffusers provider for the official XL Turbo checkpoint. |
+| 2026-05-21 | `completed/030_acestep_diffusers_xl_provider.md` | Added and validated the package-owned ACE-Step XL Turbo path that now backs the public `acestep` backend. |
 | 2026-05-21 | `completed/045_audio_artifact_screening_and_quality_metadata.md` | Strengthened artifact screening and made validation state more explicit through smoke metrics, tests, and registry status. |
 | 2026-05-21 | `completed/050_dependency_profiles_and_optional_providers.md` | Added the lightweight ACE Music remote backend, kept base dependencies empty, expanded local platform extras, and documented optional provider boundaries. |
-| 2026-05-21 | `completed/065_acestep_repetition_quality_gate.md` | Added repetition/novelty-oriented artifact screening and wired it into standalone ACE-Step quality reporting. |
+| 2026-05-21 | `completed/065_acestep_repetition_quality_gate.md` | Added repetition/novelty-oriented artifact screening and wired it into ACE-Step quality reporting. |
 | 2026-05-21 | `completed/0083_stable_audio_3_local_provider_spike.md` | Implemented and validated Stable Audio 3 Small Music as a package-owned local backend (Small validated; Medium deferred). |
 | 2026-05-21 | `completed/0084_music_capability_residency_contract.md` | Exposed Core-friendly load/list/unload residency for local music engines without confusing remote discovery with local loaded state. |
 | 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
@@ -63,13 +63,14 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | --- | --- |
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 | `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
+| `proposed/0087_truthful_music_provider_runtime_availability.md` | Promote before clients rely on provider lists for selectable music backends; provider availability must mean runnable in the connected deployment. |
 
 ## Deprecated work
 
 | Deprecated | Item | Reason |
 | --- | --- | --- |
 | 2026-05-20 | `deprecated/0025_external_acestep_runtime_wrapper.md` | Removed the out-of-package ACE-Step runtime wrapper path; standalone package code is required. |
-| 2026-05-21 | `deprecated/035_acestep_v15_backend_compatibility_hardening.md` | The validated default local path is `acestep-diffusers`; `acestep-v15` remains explicit/quality-limited and is not being hardened further. |
+| 2026-05-21 | `deprecated/035_acestep_v15_backend_compatibility_hardening.md` | Superseded by the single-backend `acestep` contract; the old standalone `acestep-v15` path is no longer part of the supported surface. |
 | 2026-05-21 | `deprecated/0081_music_install_profile_boundary.md` | Superseded by completed dependency-profile implementation. |
 | 2026-05-21 | `deprecated/0075_stable_audio_open_small_validation.md` | Open Small validation is no longer tracked as separate planned work; keep it as an optional legacy backend and focus validation on Stable Audio 3. |
 | 2026-05-21 | `deprecated/070_musicgen_small_optional_provider.md` | MusicGen Small remains an optional non-commercial backend, but we are not pursuing further validation/recommendation work as part of the core roadmap. |
@@ -86,11 +87,11 @@ When a planned item is complete:
 
 ## Planning notes
 
-- ACE-Step v1.5 must use the standalone `acestep` / `acestep-v15` package backend.
-- Previous external-runtime smoke artifacts remain useful as references, but they do not prove the
-  standalone package path works.
-- On Apple hardware, prefer PyTorch MPS for the standalone ACE-Step backend with clear CPU
-  fallbacks for known unstable text-encoder/decode steps.
+- ACE-Step discovery/UI must stay on the single public `acestep` backend contract.
+- Previous external-runtime smoke artifacts remain useful as references, but they do not define the
+  supported package path.
+- On Apple hardware, prefer PyTorch MPS for the `acestep` backend with clear CPU fallbacks for
+  known unstable decode steps.
 - No additional model should be marked recommended until it passes a real generation smoke test
   through AbstractMusic.
 - The ACE-Step XL Turbo Diffusers checkpoint is the cleanest near-term improvement path

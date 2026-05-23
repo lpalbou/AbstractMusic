@@ -7,8 +7,8 @@ from abstractmusic.types import AudioGenerationRequest
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_maps_unified_request(monkeypatch):
-    from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+def test_acestep_maps_unified_request(monkeypatch):
+    from abstractmusic.backends.acestep import AceStepBackend, AceStepBackendConfig
 
     calls = {}
 
@@ -82,11 +82,11 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
             right = list(left)
             return types.SimpleNamespace(audios=[[left, right]])
 
-    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_torch", lambda: fake_torch)
-    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_acestep_pipeline", lambda: _FakePipe)
+    monkeypatch.setattr("abstractmusic.backends.acestep._lazy_import_torch", lambda: fake_torch)
+    monkeypatch.setattr("abstractmusic.backends.acestep._lazy_import_acestep_pipeline", lambda: _FakePipe)
 
-    backend = AceStepDiffusersBackend(
-        config=AceStepDiffusersBackendConfig(
+    backend = AceStepBackend(
+        config=AceStepBackendConfig(
             model_id="ACE-Step/acestep-v15-xl-turbo-diffusers",
             device="auto",
             torch_dtype="auto",
@@ -122,25 +122,25 @@ def test_acestep_diffusers_maps_unified_request(monkeypatch):
         assert wf.getframerate() == 48000
         assert wf.getnchannels() == 2
         assert wf.getnframes() == 48000
-    assert asset.metadata["backend"] == "abstractmusic:acestep-diffusers"
+    assert asset.metadata["backend"] == "abstractmusic:acestep"
     assert asset.metadata["audio_stats"]["probably_noise_or_invalid"] is False
     assert asset.metadata["energy_continuity_stats"]["has_long_low_energy_gap"] is False
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_rejects_negative_prompt():
-    from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+def test_acestep_rejects_negative_prompt():
+    from abstractmusic.backends.acestep import AceStepBackend, AceStepBackendConfig
 
-    backend = AceStepDiffusersBackend(config=AceStepDiffusersBackendConfig())
+    backend = AceStepBackend(config=AceStepBackendConfig())
     with pytest.raises(ValueError, match="negative_prompt"):
         backend.generate_audio(AudioGenerationRequest(prompt="x", negative_prompt="noise"))
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_accepts_batched_pipeline_audio_shape():
+def test_acestep_accepts_batched_pipeline_audio_shape():
     np = pytest.importorskip("numpy")
 
-    from abstractmusic.backends.acestep_diffusers import _encode_wav_bytes
+    from abstractmusic.backends.acestep import _encode_wav_bytes
 
     audio = np.zeros((1, 2, 48000), dtype=np.float32)
     audio[0, 0, :] = 0.1
@@ -154,8 +154,8 @@ def test_acestep_diffusers_accepts_batched_pipeline_audio_shape():
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_prefers_mps_bfloat16_when_supported(monkeypatch):
-    from abstractmusic.backends.acestep_diffusers import _resolve_dtype
+def test_acestep_prefers_mps_bfloat16_when_supported(monkeypatch):
+    from abstractmusic.backends.acestep import _resolve_dtype
 
     class _FakeTensor:
         dtype = "bf16"
@@ -175,8 +175,22 @@ def test_acestep_diffusers_prefers_mps_bfloat16_when_supported(monkeypatch):
 
 
 @pytest.mark.unit
-def test_acestep_diffusers_retries_explicit_mps_fp16_with_mps_bfloat16(monkeypatch):
-    from abstractmusic.backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+def test_acestep_defaults_follow_checkpoint_variant():
+    from abstractmusic.backends.acestep import _default_guidance_scale, _default_num_inference_steps
+
+    assert _default_num_inference_steps("ACE-Step/Ace-Step1.5") == 8
+    assert _default_guidance_scale("ACE-Step/Ace-Step1.5") == 1.0
+    assert _default_num_inference_steps("ACE-Step/acestep-v15-xl-turbo-diffusers") == 8
+    assert _default_guidance_scale("ACE-Step/acestep-v15-xl-turbo-diffusers") == 1.0
+    assert _default_num_inference_steps("ACE-Step/acestep-v15-base") == 50
+    assert _default_guidance_scale("ACE-Step/acestep-v15-base") == 7.0
+    assert _default_num_inference_steps("ACE-Step/acestep-v15-sft") == 50
+    assert _default_guidance_scale("ACE-Step/acestep-v15-sft") == 7.0
+
+
+@pytest.mark.unit
+def test_acestep_retries_explicit_mps_fp16_with_mps_bfloat16(monkeypatch):
+    from abstractmusic.backends.acestep import AceStepBackend, AceStepBackendConfig
 
     loads = []
 
@@ -237,11 +251,11 @@ def test_acestep_diffusers_retries_explicit_mps_fp16_with_mps_bfloat16(monkeypat
                 return types.SimpleNamespace(audios=[[[float("nan")] * 48000, [float("nan")] * 48000]])
             return types.SimpleNamespace(audios=[[[0.0] * 48000, [0.0] * 48000]])
 
-    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_torch", lambda: fake_torch)
-    monkeypatch.setattr("abstractmusic.backends.acestep_diffusers._lazy_import_acestep_pipeline", lambda: _FakePipe)
+    monkeypatch.setattr("abstractmusic.backends.acestep._lazy_import_torch", lambda: fake_torch)
+    monkeypatch.setattr("abstractmusic.backends.acestep._lazy_import_acestep_pipeline", lambda: _FakePipe)
 
-    backend = AceStepDiffusersBackend(
-        config=AceStepDiffusersBackendConfig(
+    backend = AceStepBackend(
+        config=AceStepBackendConfig(
             model_id="ACE-Step/acestep-v15-xl-turbo-diffusers",
             device="mps",
             torch_dtype="float16",

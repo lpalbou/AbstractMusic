@@ -84,7 +84,7 @@ If the machine is offline, populate the Hugging Face cache before running genera
 
 ## Apple MPS returns non-finite audio or falls back to CPU
 
-On Apple hardware, the local ACE-Step Diffusers backend tries PyTorch MPS first. The automatic
+On Apple hardware, the local ACE-Step backend tries PyTorch MPS first. The automatic
 dtype policy avoids fp16 denoising on MPS because it can overflow during transformer inference on
 some local stacks. AbstractMusic prefers MPS bfloat16 when supported, then MPS float32, and only
 falls back to CPU float32 if MPS still returns invalid audio.

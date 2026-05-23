@@ -7,14 +7,14 @@ This registers a `music` capability backend discovered by AbstractCore via the
 Built-in backends:
 - Remote ACE Music API backend (default light/base install path).
 - Remote ElevenLabs Music API backend (music endpoints only).
-- Local ACE-Step Diffusers XL pipeline (in-process, optional extra).
-- Local ACE-Step v1.5 pipeline (explicit quality-limited backend).
+- Local ACE-Step pipeline (in-process, optional extra).
 - Local Stable Audio 3 internal runtime (gated weights; optional extra).
 - Local Diffusers audio pipeline (alternative; in-process).
 """
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import inspect
 import json
@@ -44,8 +44,7 @@ _TASK_ALIASES = {
 _BACKEND_ID_TO_KIND = {
     "abstractmusic:acemusic": "acemusic",
     "abstractmusic:elevenlabs-music": "elevenlabs",
-    "abstractmusic:acestep-diffusers": "acestep-diffusers",
-    "abstractmusic:acestep-v15": "acestep-v15",
+    "abstractmusic:acestep": "acestep",
     "abstractmusic:stable-audio": "stable-audio",
     "abstractmusic:stable-audio-3": "stable-audio-3",
     "abstractmusic:diffusers": "diffusers",
@@ -53,13 +52,26 @@ _BACKEND_ID_TO_KIND = {
 
 _BACKEND_KIND_TO_ID = {kind: backend_id for backend_id, kind in _BACKEND_ID_TO_KIND.items()}
 
+_NON_RUNNABLE_MODEL_STATUS_PREFIXES = ("planned", "research")
+
 _RUNTIME_IMPORTS_BY_EXTRA = {
     "remote": (),
-    "acestep": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
-    "acestep-diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
-    "diffusers": ("torch", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
+    "acestep": ("torch", "numpy", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
+    "diffusers": ("torch", "numpy", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"),
     "musicgen": ("torch", "transformers", "safetensors", "huggingface_hub"),
-    "stable-audio": ("torch", "torchaudio", "numpy", "transformers", "safetensors", "huggingface_hub"),
+    "stable-audio": (
+        "torch",
+        "torchaudio",
+        "numpy",
+        "transformers",
+        "safetensors",
+        "huggingface_hub",
+        "einops",
+        "einops_exts",
+        "alias_free_torch",
+        "vector_quantize_pytorch",
+        "pywt",
+    ),
     "stable-audio-3": ("torch", "transformers", "safetensors", "huggingface_hub", "einops"),
 }
 
@@ -219,31 +231,83 @@ def _canonical_provider_id(value: Any) -> str:
 
 
 def _display_name(provider_id: str) -> str:
-    known = {
-        "ace-music": "ACE Music",
-        "elevenlabs": "ElevenLabs",
-        "ace-step": "ACE-Step",
-        "meta": "Meta",
-        "stability-ai": "Stability AI",
-        "heartmula": "HeartMuLa",
-        "m-a-p": "m-a-p",
-        "lh-tech-ai": "LH-Tech-AI",
-        "dalision": "Dalision",
-        "huggingface": "Hugging Face",
-    }
-    return known.get(str(provider_id), str(provider_id).replace("-", " ").title())
+    return str(provider_id or "").strip()
+
+
+def _selector_text(value: Any) -> str:
+    return str(value or "").strip().lower().replace("_", "-")
+
+
+def _dedupe_strings(values: List[Any]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
+def _registered_backend_kind_for_spec(spec: MusicModelSpec) -> Optional[str]:
+    for kind in spec.backend_kinds:
+        normalized = str(kind or "").strip()
+        if normalized in _BACKEND_KIND_TO_ID:
+            return normalized
+    return None
+
+
+def _provider_id_for_backend_kind(kind: Any) -> str:
+    backend_id = _BACKEND_KIND_TO_ID.get(str(kind or "").strip())
+    if not backend_id:
+        return ""
+    return str(backend_id).split(":", 1)[-1].strip()
+
+
+def _provider_filter_backend_kind(value: Any) -> Optional[str]:
+    text = _selector_text(value)
+    if not text:
+        return None
+    for backend_kind, backend_id in _BACKEND_KIND_TO_ID.items():
+        provider_id = _provider_id_for_backend_kind(backend_kind)
+        if text in {_selector_text(provider_id), _selector_text(backend_id)}:
+            return backend_kind
+    return None
+
+
+def _model_status_is_runnable(value: Any) -> bool:
+    status = str(value or "").strip().lower()
+    if not status:
+        return False
+    return not any(status.startswith(prefix) for prefix in _NON_RUNNABLE_MODEL_STATUS_PREFIXES)
 
 
 def _runtime_installed(extra: Optional[str]) -> Optional[bool]:
-    imports = _RUNTIME_IMPORTS_BY_EXTRA.get(str(extra or ""))
+    extra_name = str(extra or "").strip()
+    imports = _RUNTIME_IMPORTS_BY_EXTRA.get(extra_name)
     if not imports:
         return None
-    return all(importlib.util.find_spec(name) is not None for name in imports)
+    if not all(importlib.util.find_spec(name) is not None for name in imports):
+        return False
+
+    if extra_name == "acestep":
+        try:
+            diffusers_mod = importlib.import_module("diffusers")
+        except Exception:
+            return False
+        return getattr(diffusers_mod, "AceStepPipeline", None) is not None
+
+    return True
 
 
 def _spec_matches_provider(spec: MusicModelSpec, provider: Optional[str]) -> bool:
-    provider_s = _canonical_provider_id(provider) if provider is not None else ""
-    return not provider_s or _canonical_provider_id(spec.provider) == provider_s
+    if provider is None:
+        return True
+    backend_kind = _provider_filter_backend_kind(provider)
+    if backend_kind is None:
+        return False
+    return _registered_backend_kind_for_spec(spec) == backend_kind
 
 
 def _selected_backend_kind(backend_id: str) -> Optional[str]:
@@ -255,11 +319,12 @@ def _backend_id_for_spec(spec: MusicModelSpec, *, default_backend_id: str) -> Op
         backend_id = _BACKEND_KIND_TO_ID.get(str(kind))
         if backend_id:
             return backend_id
-    return str(default_backend_id).strip() or None
+    return None
 
 
 def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[str, Any]:
-    provider_id = _canonical_provider_id(spec.provider)
+    backend_kind = _registered_backend_kind_for_spec(spec)
+    provider_id = _provider_id_for_backend_kind(backend_kind)
     remote = bool(spec.raw.get("remote", False))
     local = bool(spec.raw.get("local", not remote))
     routed_backend_id = _backend_id_for_spec(spec, default_backend_id=backend_id)
@@ -281,6 +346,7 @@ def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[st
         "commercial_allowed": spec.commercial_allowed,
         "metadata": {
             "provider": spec.provider,
+            "backend_kind": backend_kind,
             "backend_kinds": list(spec.backend_kinds),
             "dependency_extra": spec.dependency_extra,
             "installed": _runtime_installed(spec.dependency_extra),
@@ -302,7 +368,7 @@ def _configured_diffusers_model_record(owner: Any, *, backend_id: str, task: Opt
     task_s = _normalize_task(task) or "text_to_audio"
     return {
         "model_id": str(model_id),
-        "provider_id": "huggingface",
+        "provider_id": "diffusers",
         "capability": "music",
         "tasks": [task_s],
         "modalities": ["text", "audio"],
@@ -315,7 +381,8 @@ def _configured_diffusers_model_record(owner: Any, *, backend_id: str, task: Opt
         "source": f"https://huggingface.co/{model_id}" if "/" in str(model_id) else None,
         "recommended": False,
         "metadata": {
-            "provider": "Hugging Face",
+            "provider": "diffusers",
+            "backend_kind": "diffusers",
             "backend_kinds": ["diffusers"],
             "dependency_extra": "diffusers",
             "installed": _runtime_installed("diffusers"),
@@ -795,6 +862,83 @@ class _AbstractMusicCapabilityBase:
             text_planner_mode=self._get_text_planner_mode(),
         )
 
+    def _remote_backend_is_configured(self, backend_kind: str) -> bool:
+        kind = str(backend_kind or "").strip()
+        if kind == "acemusic":
+            return bool(_owner_cfg(self._owner, "music_acemusic_api_key") or _env("ACEMUSIC_API_KEY"))
+        if kind == "elevenlabs":
+            return bool(_owner_cfg(self._owner, "music_elevenlabs_api_key") or _env("ELEVENLABS_API_KEY"))
+        return False
+
+    def _backend_runtime_state(self, backend_kind: str, *, dependency_extras: Optional[List[str]] = None) -> Dict[str, Any]:
+        kind = str(backend_kind or "").strip()
+        provider_id = _provider_id_for_backend_kind(kind)
+        backend_id = _BACKEND_KIND_TO_ID.get(kind)
+        remote = kind in {"acemusic", "elevenlabs"}
+        local = bool(kind) and not remote
+        configured: Optional[bool]
+        installed: Optional[bool]
+        usable = False
+
+        if remote:
+            installed = True
+            configured = self._remote_backend_is_configured(kind)
+            usable = bool(configured)
+        else:
+            extras = _dedupe_strings(dependency_extras or [])
+            if not extras and kind == "diffusers":
+                extras = ["diffusers"]
+            installed_values = [_runtime_installed(extra) for extra in extras]
+            installed_known = [value for value in installed_values if value is not None]
+            installed = any(installed_known) if installed_known else None
+            if kind == "diffusers":
+                configured = bool(_owner_cfg(self._owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID"))
+                usable = bool(installed) and bool(configured)
+            else:
+                configured = bool(installed)
+                usable = bool(installed)
+
+        return {
+            "provider_id": provider_id,
+            "display_name": _display_name(provider_id),
+            "backend_kind": kind,
+            "backend_id": backend_id,
+            "local": local,
+            "remote": remote,
+            "installed": installed,
+            "configured": configured,
+            "usable": bool(usable),
+        }
+
+    def _iter_discoverable_specs(
+        self,
+        *,
+        task: Optional[str] = None,
+        provider: Optional[str] = None,
+    ) -> List[tuple[MusicModelSpec, str, Dict[str, Any]]]:
+        provider_filter = provider if provider is not None else None
+        wanted_backend_kind = _provider_filter_backend_kind(provider_filter)
+        out: List[tuple[MusicModelSpec, str, Dict[str, Any]]] = []
+        for spec in self._registry_models(task=task):
+            backend_kind = _registered_backend_kind_for_spec(spec)
+            if not backend_kind:
+                continue
+            if wanted_backend_kind is not None:
+                if backend_kind != wanted_backend_kind:
+                    continue
+            elif provider_filter is not None and not _spec_matches_provider(spec, provider_filter):
+                continue
+            if not _model_status_is_runnable(spec.status):
+                continue
+            state = self._backend_runtime_state(
+                backend_kind,
+                dependency_extras=[spec.dependency_extra] if spec.dependency_extra else [],
+            )
+            if not state["usable"]:
+                continue
+            out.append((spec, backend_kind, state))
+        return out
+
     def _registry_models(self, *, task: Optional[str] = None, provider: Optional[str] = None) -> List[MusicModelSpec]:
         registry = MusicModelCapabilitiesRegistry()
         models = [
@@ -810,10 +954,9 @@ class _AbstractMusicCapabilityBase:
         task_s = _normalize_task(task)
         selected_kind = _selected_backend_kind(str(getattr(self, "backend_id", "")))
         providers: Dict[str, Dict[str, Any]] = {}
-        for spec in self._registry_models(task=task_s):
-            provider_id = _canonical_provider_id(spec.provider)
-            spec_remote = bool(spec.raw.get("remote", False))
-            spec_local = bool(spec.raw.get("local", not spec_remote))
+        for spec, backend_kind, state in self._iter_discoverable_specs(task=task_s):
+            provider_id = str(state["provider_id"])
+            backend_id = str(state["backend_id"] or "")
             entry = providers.setdefault(
                 provider_id,
                 {
@@ -821,36 +964,41 @@ class _AbstractMusicCapabilityBase:
                     "display_name": _display_name(provider_id),
                     "capability": "music",
                     "tasks": [],
-                    "local": spec_local,
-                    "remote": spec_remote,
+                    "local": bool(state["local"]),
+                    "remote": bool(state["remote"]),
                     "status": "available",
-                    "backend_id": str(getattr(self, "backend_id", "")),
-                    "selected": False,
+                    "backend_id": backend_id,
+                    "installed": state["installed"],
+                    "configured": state["configured"],
+                    "selected": selected_kind == backend_kind,
                     "metadata": {
                         "models": [],
+                        "backend_kind": backend_kind,
                         "backend_kinds": [],
                         "dependency_extras": [],
                     },
                 },
             )
-            entry["local"] = bool(entry.get("local")) or spec_local
-            entry["remote"] = bool(entry.get("remote")) or spec_remote
+            entry["local"] = bool(entry.get("local")) or bool(state["local"])
+            entry["remote"] = bool(entry.get("remote")) or bool(state["remote"])
+            if state["installed"] is not None:
+                entry["installed"] = bool(state["installed"])
+            if state["configured"] is not None:
+                entry["configured"] = bool(state["configured"])
             for value in spec.tasks:
                 if value not in entry["tasks"]:
                     entry["tasks"].append(value)
             entry["metadata"]["models"].append(spec.id)
-            for value in spec.backend_kinds:
-                if value not in entry["metadata"]["backend_kinds"]:
-                    entry["metadata"]["backend_kinds"].append(value)
-                if selected_kind is not None and value == selected_kind:
-                    entry["selected"] = True
+            if backend_kind not in entry["metadata"]["backend_kinds"]:
+                entry["metadata"]["backend_kinds"].append(backend_kind)
             if spec.dependency_extra and spec.dependency_extra not in entry["metadata"]["dependency_extras"]:
                 entry["metadata"]["dependency_extras"].append(spec.dependency_extra)
 
-        if selected_kind == "diffusers":
+        diffusers_state = self._backend_runtime_state("diffusers", dependency_extras=["diffusers"])
+        if diffusers_state["usable"]:
             configured = _configured_diffusers_model_record(
                 self._owner,
-                backend_id=str(getattr(self, "backend_id", "")),
+                backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
                 task=task_s,
             )
             if configured is not None:
@@ -865,9 +1013,11 @@ class _AbstractMusicCapabilityBase:
                         "local": True,
                         "remote": False,
                         "status": "configured",
-                        "backend_id": str(getattr(self, "backend_id", "")),
-                        "selected": True,
-                        "metadata": {"models": [], "backend_kinds": [], "dependency_extras": []},
+                        "backend_id": str(_BACKEND_KIND_TO_ID["diffusers"]),
+                        "installed": diffusers_state["installed"],
+                        "configured": diffusers_state["configured"],
+                        "selected": selected_kind == "diffusers",
+                        "metadata": {"models": [], "backend_kind": "diffusers", "backend_kinds": [], "dependency_extras": []},
                     },
                 )
                 for value in configured.get("tasks", []):
@@ -879,17 +1029,10 @@ class _AbstractMusicCapabilityBase:
                     entry["metadata"]["backend_kinds"].append("diffusers")
                 if "diffusers" not in entry["metadata"]["dependency_extras"]:
                     entry["metadata"]["dependency_extras"].append("diffusers")
-                entry["selected"] = True
-                entry["installed"] = _runtime_installed("diffusers")
+                entry["selected"] = selected_kind == "diffusers"
 
         for entry in providers.values():
-            installed_values = [
-                _runtime_installed(extra)
-                for extra in entry["metadata"].get("dependency_extras", [])
-            ]
-            installed_known = [value for value in installed_values if value is not None]
-            if installed_known:
-                entry["installed"] = any(installed_known)
+            entry["metadata"]["models"] = list(dict.fromkeys(entry["metadata"]["models"]))
             if not entry["tasks"] and task_s:
                 entry["tasks"] = [task_s]
 
@@ -909,13 +1052,17 @@ class _AbstractMusicCapabilityBase:
 
         task_s = _normalize_task(task)
         provider_s = provider_id or provider
-        backend_id = str(getattr(self, "backend_id", ""))
         records = [
-            _model_record_from_spec(spec, backend_id=backend_id)
-            for spec in self._registry_models(task=task_s, provider=provider_s)
+            _model_record_from_spec(spec, backend_id=str(state["backend_id"] or ""))
+            for spec, _backend_kind, state in self._iter_discoverable_specs(task=task_s, provider=provider_s)
         ]
-        if _selected_backend_kind(backend_id) == "diffusers" and _canonical_provider_id(provider_s) in {"", "huggingface"}:
-            configured = _configured_diffusers_model_record(self._owner, backend_id=backend_id, task=task_s)
+        wanted_backend_kind = _provider_filter_backend_kind(provider_s)
+        if wanted_backend_kind in {None, "diffusers"}:
+            configured = _configured_diffusers_model_record(
+                self._owner,
+                backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
+                task=task_s,
+            )
             if configured is not None:
                 known_ids = {str(item.get("model_id")) for item in records}
                 if str(configured.get("model_id")) not in known_ids:
@@ -1214,10 +1361,10 @@ class _AbstractMusicDiffusersCapability(_AbstractMusicCapabilityBase):
         return super().t2m(full_prompt, lyrics=None, **kwargs)
 
 
-class _AbstractMusicAceStepDiffusersCapability(_AbstractMusicCapabilityBase):
-    """AbstractCore MusicCapability using ACE-Step Diffusers XL Turbo."""
+class _AbstractMusicAceStepCapability(_AbstractMusicCapabilityBase):
+    """AbstractCore MusicCapability using the supported ACE-Step path."""
 
-    backend_id = "abstractmusic:acestep-diffusers"
+    backend_id = "abstractmusic:acestep"
 
     def _get_backend(self):
         if self._backend is not None:
@@ -1247,51 +1394,16 @@ class _AbstractMusicAceStepDiffusersCapability(_AbstractMusicCapabilityBase):
             except Exception:
                 return float(default)
 
-        from ..backends.acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
+        from ..backends.acestep import AceStepBackend, AceStepBackendConfig
 
-        cfg = AceStepDiffusersBackendConfig(
+        cfg = AceStepBackendConfig(
             model_id=str(model_id),
             device=str(device or "auto"),
             torch_dtype=str(dtype or "auto"),
-            num_inference_steps=_to_int(steps, 16),
+            num_inference_steps=_to_int(steps, 8) if steps is not None else None,
             duration_s=_to_float(duration_s, 10.0),
         )
-        self._backend = AceStepDiffusersBackend(config=cfg)
-        return self._backend
-
-
-class _AbstractMusicAceStepV15Capability(_AbstractMusicCapabilityBase):
-    """AbstractCore MusicCapability using the standalone ACE-Step v1.5 path."""
-
-    backend_id = "abstractmusic:acestep-v15"
-
-    def _get_backend(self):
-        if self._backend is not None:
-            return self._backend
-
-        # Respect test injection first.
-        try:
-            return super()._get_backend()
-        except NotImplementedError:
-            pass
-
-        repo_id = _require_model_id(self._owner) or "ACE-Step/Ace-Step1.5"
-        device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
-        dtype = _owner_cfg(self._owner, "music_torch_dtype") or _env("ABSTRACTMUSIC_TORCH_DTYPE", "auto")
-        revision = _owner_cfg(self._owner, "music_revision") or _env("ABSTRACTMUSIC_REVISION")
-
-        from ..backends.acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
-
-        cfg_kwargs = {
-            "repo_id": str(repo_id),
-            "device": str(device or "auto"),
-            "torch_dtype": str(dtype or "auto"),
-            "vae_torch_dtype": str(dtype or "auto"),
-        }
-        if isinstance(revision, str) and revision.strip():
-            cfg_kwargs["revision"] = str(revision).strip()
-        cfg = AceStepV15BackendConfig(**cfg_kwargs)
-        self._backend = AceStepV15Backend(config=cfg)
+        self._backend = AceStepBackend(config=cfg)
         return self._backend
 
 
@@ -1413,24 +1525,14 @@ def register(registry: Any) -> None:
     )
 
     registry.register_music_backend(
-        backend_id=_AbstractMusicAceStepDiffusersCapability.backend_id,
-        factory=lambda owner: _AbstractMusicAceStepDiffusersCapability(owner),
+        backend_id=_AbstractMusicAceStepCapability.backend_id,
+        factory=lambda owner: _AbstractMusicAceStepCapability(owner),
         priority=30,
-        description="AbstractMusic ACE-Step Diffusers XL Turbo path (in-process, package-owned adapter).",
+        description="AbstractMusic ACE-Step path (in-process, package-owned AceStepPipeline adapter).",
         config_hint="Optional: set music_model_id to a HF repo id "
         "(default: 'ACE-Step/acestep-v15-xl-turbo-diffusers'). Local filesystem paths are rejected. "
         "Optionally set music_device='auto'/'cuda'/'mps'/'cpu', music_torch_dtype='auto'/'float32'/'bfloat16', "
-        "and music_text_planner / music_text_planner_factory or a narrow host text service for text planning.",
-    )
-
-    registry.register_music_backend(
-        backend_id=_AbstractMusicAceStepV15Capability.backend_id,
-        factory=lambda owner: _AbstractMusicAceStepV15Capability(owner),
-        priority=5,
-        description="AbstractMusic standalone ACE-Step v1.5 path (explicit quality-limited backend).",
-        config_hint="Optional: set music_model_id to a HF repo id (default: 'ACE-Step/Ace-Step1.5'). "
-        "Local filesystem paths are rejected. "
-        "Optionally set music_device='auto'/'cuda'/'mps'/'cpu', music_torch_dtype='auto'/'float32'/'bfloat16', "
+        "music_num_inference_steps to override the checkpoint recipe (turbo defaults to 8; base/sft checkpoints should usually use 50), "
         "and music_text_planner / music_text_planner_factory or a narrow host text service for text planning.",
     )
 

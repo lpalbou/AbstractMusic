@@ -77,7 +77,10 @@ into AbstractMusic.
 The plugin capability object exposes AbstractCore-friendly discovery methods:
 `available_providers(task=...)`, `list_models(task=..., provider=...)`,
 `list_provider_models(...)`, `list_operations(task=...)`, and `capability_catalog(task=...)`.
-They use the packaged model capability registry and do not load model weights.
+They use the packaged model capability registry, do not load model weights, and only surface
+providers/models whose runtime is usable in the current environment. Provider filters are
+backend-oriented ids such as `acemusic`, `elevenlabs`, `acestep`, `stable-audio`,
+`stable-audio-3`, and `diffusers`.
 
 When running under AbstractCore, the capability object also exposes an optional residency surface
 for local backends:
@@ -121,7 +124,7 @@ Backends must raise clear errors for unsupported fields when support is known.
 from abstractmusic.model_capabilities import MusicModelCapabilitiesRegistry
 
 registry = MusicModelCapabilitiesRegistry()
-spec = registry.get("ACE-Step/Ace-Step1.5")
+spec = registry.get("ACE-Step/acestep-v15-xl-turbo-diffusers")
 ```
 
 The registry is metadata only. It must not silently change the configured provider or model.
@@ -133,13 +136,10 @@ The registry is metadata only. It must not silently change the configured provid
 - `elevenlabs`: lightweight remote backend for ElevenLabs Music only. It requires
   `ELEVENLABS_API_KEY`, calls `/v1/music` and `/v1/music/plan`, and can request WAV or MP3. Voice
   and text-to-speech routes are intentionally not exposed here.
-- `acestep`: local ACE-Step Diffusers XL Turbo backend alias.
-- `acestep-diffusers`: local ACE-Step Diffusers adapter for `AceStepPipeline`. Defaults to the
-  official `ACE-Step/acestep-v15-xl-turbo-diffusers` checkpoint, but also supports compatible
-  Diffusers conversions when `model_id` is set (for example, community conversions hosted on
-  Hugging Face).
-- `acestep-v15`: explicit quality-limited ACE-Step v1.5 backend, using vendored model code and
-  package-owned orchestration.
+- `acestep`: local ACE-Step adapter for `AceStepPipeline`. Defaults to the official
+  `ACE-Step/acestep-v15-xl-turbo-diffusers` checkpoint. Other trained AceStepPipeline-compatible
+  checkpoints can be selected explicitly with `model_id`, but the packaged discovery catalog only
+  surfaces reviewed entries.
 - `diffusers`: generic Diffusers audio backend for compatible audio pipelines.
 - `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
 - `stable-audio`: vendored Stable Audio Open Small adapter for

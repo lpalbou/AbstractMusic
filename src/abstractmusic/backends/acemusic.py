@@ -355,7 +355,7 @@ class AceMusicBackend:
 
         metadata = {
             "backend": self.backend_id,
-            "provider": "ACE Music",
+            "provider": self.backend_id,
             "remote": True,
             "model": self._config.model or response.get("model") or "acemusic/ace-step-api",
             "base_url": self._config.base_url,

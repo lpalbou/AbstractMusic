@@ -19,7 +19,7 @@ abstractmusic cli --engine acestep --duration 25 --out-dir smoke-artifacts/repl
 
 ## Core concepts
 
-- **Engine**: the backend implementation (`acemusic`, `acestep-diffusers`, `stable-audio-3`, …).
+- **Engine**: the backend implementation (`acemusic`, `acestep`, `stable-audio-3`, …).
 - **Model**: the provider model id from the packaged registry (for local engines, this is usually a
   Hugging Face repo id).
 

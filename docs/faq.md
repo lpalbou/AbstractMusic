@@ -9,9 +9,8 @@ smoke tests are planned and must be opt-in because checkpoints are large.
 
 The base default is `acemusic`, a lightweight remote ACE Music API backend, because the default
 package profile should not install local ML runtimes. For local generation, ACE-Step Diffusers XL
-Turbo through `acestep` / `acestep-diffusers` is the supported Apple/GPU path that passed the
-current 30-second reference-floor smoke. The explicit `acestep-v15` backend uses vendored model
-code but remains quality-limited after repeated-loop validation failures.
+Turbo through `acestep` is the supported Apple/GPU path that passed the current 30-second
+reference-floor smoke.
 
 `elevenlabs` is the second supported remote backend, but it is explicit rather than the default.
 Two remote endpoints are enough for the lightweight package profile; new provider work should now

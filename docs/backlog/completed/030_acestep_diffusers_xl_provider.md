@@ -33,7 +33,7 @@ ignore duration and lyrics because the relevant argument names differ from older
 
 ## What we want to do
 
-Add a dedicated `AceStepDiffusersBackend` for
+Add a dedicated `AceStepBackend` for
 `ACE-Step/acestep-v15-xl-turbo-diffusers`, while keeping the public `MusicManager` API unified.
 
 ## Why
@@ -44,7 +44,7 @@ forcing ACE-Step-specific behavior through an overly generic backend.
 
 ## Requirements
 
-- Add `AceStepDiffusersBackendConfig` with model id defaulting to
+- Add `AceStepBackendConfig` with model id defaulting to
   `ACE-Step/acestep-v15-xl-turbo-diffusers`.
 - Lazy-import `torch` and `diffusers`.
 - Load `AceStepPipeline` when available; fail with a clear optional dependency/version error when
@@ -118,7 +118,7 @@ without creating a vague utility layer.
 
 ## Progress notes
 
-2026-05-15: Added `AceStepDiffusersBackend`, CLI/backend selection, AbstractCore plugin
+2026-05-15: Added `AceStepBackend`, CLI/backend selection, AbstractCore plugin
 registration, and fake-pipeline unit tests. Local `diffusers 0.38.0` exposes `AceStepPipeline`.
 The real XL Turbo Diffusers checkpoint is not cached locally beyond metadata yet, so a real XL
 smoke remains pending.

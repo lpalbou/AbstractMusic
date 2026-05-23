@@ -10,7 +10,7 @@ AbstractFramework ecosystem.
 - Hugging Face Transformers: text encoders, tokenizers, and custom model loading.
 - Hugging Face Hub: model discovery and checkpoint download.
 - Safetensors: checkpoint file format support.
-- Einops: tensor operations used by vendored model code.
+- Einops: tensor operations used by local runtime code and tests.
 - NumPy: audio array handling and tests.
 
 ## Model families reviewed or integrated
@@ -28,12 +28,6 @@ AbstractFramework ecosystem.
   declare a license during the 2026-05-15 review, so it is not a default provider candidate.
 - Omni2Sound, reviewed as a multimodal text/video-to-audio provider. Its Hugging Face model card
   declares CC BY-NC 4.0, so it is not suitable as a default commercial-capable provider.
-
-## Vendored code
-
-AbstractMusic currently vendors ACE-Step v1.5 custom Transformers model code under
-`src/abstractmusic/vendor/acestep_v15_turbo/` to avoid using `trust_remote_code` at runtime.
-Vendored files should keep their upstream license headers intact.
 
 ## Integrations
 

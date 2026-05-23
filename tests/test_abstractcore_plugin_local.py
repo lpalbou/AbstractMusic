@@ -1,4 +1,5 @@
 import pytest
+import types
 
 from abstractmusic.types import GeneratedAsset, MusicBackendCapabilities
 from abstractmusic.errors import AbstractMusicError, CapabilityNotSupportedError
@@ -211,22 +212,19 @@ def test_plugin_registers_backend_factory():
 
     reg = _Registry()
     register(reg)
-    assert len(reg.registrations) == 7
+    assert len(reg.registrations) == 6
     backend_ids = {r["backend_id"] for r in reg.registrations}
     assert backend_ids == {
         "abstractmusic:acemusic",
         "abstractmusic:elevenlabs-music",
-        "abstractmusic:acestep-v15",
-        "abstractmusic:acestep-diffusers",
+        "abstractmusic:acestep",
         "abstractmusic:stable-audio",
         "abstractmusic:stable-audio-3",
         "abstractmusic:diffusers",
     }
     priorities = {r["backend_id"]: r["priority"] for r in reg.registrations}
-    assert priorities["abstractmusic:acemusic"] > priorities["abstractmusic:acestep-diffusers"]
-    assert priorities["abstractmusic:elevenlabs-music"] > priorities["abstractmusic:acestep-diffusers"]
-    assert priorities["abstractmusic:acestep-diffusers"] > priorities["abstractmusic:acestep-v15"]
-    assert priorities["abstractmusic:stable-audio-3"] > priorities["abstractmusic:acestep-v15"]
+    assert priorities["abstractmusic:acemusic"] > priorities["abstractmusic:acestep"]
+    assert priorities["abstractmusic:elevenlabs-music"] > priorities["abstractmusic:acestep"]
     assert all(callable(r["factory"]) for r in reg.registrations)
 
 
@@ -243,7 +241,7 @@ def test_capability_t2m_returns_bytes_without_artifact_store():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-v15")
+    factory = _get_factory(reg, "abstractmusic:acestep")
 
     owner = _DummyOwner({"music_backend_instance": _StubBackend()})
     cap = factory(owner)
@@ -329,7 +327,7 @@ def test_capability_t2m_stores_when_artifact_store_provided():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-v15")
+    factory = _get_factory(reg, "abstractmusic:acestep")
 
     owner = _DummyOwner({"music_backend_instance": _StubBackend()})
     cap = factory(owner)
@@ -350,7 +348,7 @@ def test_capability_rejects_non_wav_format():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-v15")
+    factory = _get_factory(reg, "abstractmusic:acestep")
 
     owner = _DummyOwner({"music_backend_instance": _StubBackend()})
     cap = factory(owner)
@@ -392,7 +390,7 @@ def test_capability_uses_injected_text_planner_without_abstractcore_import():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     calls = []
 
@@ -428,7 +426,7 @@ def test_capability_text_planner_mode_off_does_not_call_injected_planner():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     calls = []
 
@@ -457,7 +455,7 @@ def test_capability_text_planner_required_mode_needs_provider():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     owner = _DummyOwner({"music_backend_instance": _CaptureBackend(), "music_text_planner_mode": "required"})
     cap = factory(owner)
 
@@ -471,7 +469,7 @@ def test_capability_uses_abstractcore_host_text_service_for_planning():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     service = _FakeCoreTextService()
     owner = _OwnerWithHostTextService({"music_backend_instance": backend}, service)
@@ -503,7 +501,7 @@ def test_capability_text_planner_mode_off_ignores_host_text_service():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     service = _FakeCoreTextService()
     owner = _OwnerWithHostTextService(
@@ -525,7 +523,7 @@ def test_capability_host_text_service_can_fall_back_to_json_text():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     service = _FakeCoreTextOnlyService()
     owner = _DummyOwner({"music_backend_instance": backend, "music_host_text_service": service})
@@ -550,7 +548,7 @@ def test_capability_uses_core_like_host_context_text_service():
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _CaptureBackend()
     service = _FakeCoreTextServiceWithoutJsonSchema()
     owner = _OwnerWithCoreLikeHostTextService({"music_backend_instance": backend}, service)
@@ -567,40 +565,71 @@ def test_capability_uses_core_like_host_context_text_service():
 
 
 @pytest.mark.unit
-def test_capability_exposes_generic_music_discovery_without_loading_runtime():
+def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_labels(monkeypatch):
+    import abstractmusic.integrations.abstractcore_plugin as plugin
     from abstractmusic.integrations.abstractcore_plugin import register
+
+    monkeypatch.setenv("ACEMUSIC_API_KEY", "test-acemusic-key")
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.delenv("ABSTRACTMUSIC_MODEL_ID", raising=False)
+    monkeypatch.setattr(
+        plugin,
+        "_runtime_installed",
+        lambda extra: extra in {"acestep", "stable-audio", "stable-audio-3"},
+    )
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     cap = factory(_DummyOwner({}))
 
     providers = cap.available_providers(task="t2m")
     provider_ids = {item["provider_id"] for item in providers}
-    assert "ace-music" in provider_ids
-    assert "elevenlabs" in provider_ids
-    assert "ace-step" in provider_ids
+    assert provider_ids == {
+        "acemusic",
+        "acestep",
+        "stable-audio",
+        "stable-audio-3",
+    }
     assert all(item["capability"] == "music" for item in providers)
+    assert "heartmula" not in provider_ids
+    assert "yue" not in provider_ids
+    assert "musicgen" not in provider_ids
+    assert "elevenlabs-music" not in provider_ids
 
-    remote_provider = next(item for item in providers if item["provider_id"] == "ace-music")
+    remote_provider = next(item for item in providers if item["provider_id"] == "acemusic")
     assert remote_provider["remote"] is True
     assert remote_provider["local"] is False
+    assert remote_provider["configured"] is True
+    assert remote_provider["backend_id"] == "abstractmusic:acemusic"
 
-    models = cap.list_models(task="text_to_music", provider="ACE-Step")
+    models = cap.list_models(task="text_to_music", provider="acestep")
     model_ids = {item["model_id"] for item in models}
+    assert "ACE-Step/Ace-Step1.5" in model_ids
+    assert "ACE-Step/acestep-v15-base" in model_ids
+    assert "ACE-Step/acestep-v15-sft" in model_ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in model_ids
     diffusers_record = next(item for item in models if item["model_id"] == "ACE-Step/acestep-v15-xl-turbo-diffusers")
-    assert diffusers_record["provider_id"] == "ace-step"
-    assert diffusers_record["backend_id"] == "abstractmusic:acestep-diffusers"
+    assert diffusers_record["provider_id"] == "acestep"
+    assert diffusers_record["backend_id"] == "abstractmusic:acestep"
     assert diffusers_record["formats"] == ["wav"]
     assert diffusers_record["metadata"]["supports_lyrics"] is True
+    assert "ACE-Step/acestep-5Hz-lm-0.6B" not in model_ids
+    assert not any(model_id.startswith("Runware/acestep-") for model_id in model_ids)
 
-    stability_models = cap.list_models(task="text_to_music", provider="Stability AI")
+    stability_models = cap.list_models(task="text_to_music", provider="stable-audio")
     stability_model_ids = {item["model_id"] for item in stability_models}
     assert "stabilityai/stable-audio-open-small" in stability_model_ids
     stable_open = next(item for item in stability_models if item["model_id"] == "stabilityai/stable-audio-open-small")
-    assert stable_open["provider_id"] == "stability-ai"
+    assert stable_open["provider_id"] == "stable-audio"
     assert stable_open["backend_id"] == "abstractmusic:stable-audio"
+    assert "stabilityai/stable-audio-3-small-music" not in stability_model_ids
+
+    all_models = cap.list_models(task="text_to_music")
+    all_provider_ids = {item["provider_id"] for item in all_models}
+    assert "musicgen" not in all_provider_ids
+    assert "heartmula" not in all_provider_ids
+    assert "yue" not in all_provider_ids
 
     operations = cap.list_operations(task="text2music")
     assert operations and operations[0]["task"] == "text_to_music"
@@ -626,12 +655,32 @@ def test_capability_exposes_generic_music_discovery_without_loading_runtime():
 
 
 @pytest.mark.unit
+def test_runtime_dependency_probe_requires_real_local_backend_runtime(monkeypatch):
+    import abstractmusic.integrations.abstractcore_plugin as plugin
+
+    available_specs = {"torch", "numpy", "diffusers", "transformers", "accelerate", "safetensors", "huggingface_hub"}
+
+    monkeypatch.setattr(
+        plugin.importlib.util,
+        "find_spec",
+        lambda name: object() if name in available_specs else None,
+    )
+    monkeypatch.setattr(
+        plugin.importlib,
+        "import_module",
+        lambda name: types.SimpleNamespace(__version__="0.37.0") if name == "diffusers" else None,
+    )
+
+    assert plugin._runtime_installed("acestep") is False
+    assert plugin._runtime_installed("stable-audio") is False
+
+@pytest.mark.unit
 def test_capability_residency_load_list_unload_for_local_backend():
     from abstractmusic.integrations.abstractcore_plugin import register
 
     reg = _Registry()
     register(reg)
-    factory = _get_factory(reg, "abstractmusic:acestep-diffusers")
+    factory = _get_factory(reg, "abstractmusic:acestep")
     backend = _WarmableBackend()
 
     owner = _DummyOwner({"music_backend_instance": backend})

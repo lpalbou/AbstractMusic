@@ -415,7 +415,7 @@ class ElevenLabsMusicBackend:
                 object="model",
                 owned_by="ElevenLabs",
                 capabilities=("text_to_music", "composition_plan"),
-                raw={"provider": "ElevenLabs", "music_only": True},
+                raw={"provider": self.backend_id, "music_only": True},
             ),
         )
 
@@ -530,7 +530,7 @@ class ElevenLabsMusicBackend:
         mime = _sniff_mime(data, header_mime or _mime_for_format(fmt))
         metadata = {
             "backend": self.backend_id,
-            "provider": "ElevenLabs",
+            "provider": self.backend_id,
             "remote": True,
             "music_only": True,
             "model": self._config.model or _DEFAULT_MODEL,

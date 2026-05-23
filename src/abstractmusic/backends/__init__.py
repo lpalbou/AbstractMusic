@@ -12,10 +12,8 @@ __all__ = [
     "AceMusicBackendConfig",
     "ElevenLabsMusicBackend",
     "ElevenLabsMusicBackendConfig",
-    "AceStepV15Backend",
-    "AceStepV15BackendConfig",
-    "AceStepDiffusersBackend",
-    "AceStepDiffusersBackendConfig",
+    "AceStepBackend",
+    "AceStepBackendConfig",
     "DiffusersAudioBackend",
     "DiffusersAudioBackendConfig",
     "MusicGenBackend",
@@ -36,14 +34,10 @@ def __getattr__(name: str):
         from .elevenlabs_music import ElevenLabsMusicBackend, ElevenLabsMusicBackendConfig
 
         return ElevenLabsMusicBackend if name == "ElevenLabsMusicBackend" else ElevenLabsMusicBackendConfig
-    if name in {"AceStepV15Backend", "AceStepV15BackendConfig"}:
-        from .acestep_v15 import AceStepV15Backend, AceStepV15BackendConfig
+    if name in {"AceStepBackend", "AceStepBackendConfig"}:
+        from .acestep import AceStepBackend, AceStepBackendConfig
 
-        return AceStepV15Backend if name == "AceStepV15Backend" else AceStepV15BackendConfig
-    if name in {"AceStepDiffusersBackend", "AceStepDiffusersBackendConfig"}:
-        from .acestep_diffusers import AceStepDiffusersBackend, AceStepDiffusersBackendConfig
-
-        return AceStepDiffusersBackend if name == "AceStepDiffusersBackend" else AceStepDiffusersBackendConfig
+        return AceStepBackend if name == "AceStepBackend" else AceStepBackendConfig
     if name in {"DiffusersAudioBackend", "DiffusersAudioBackendConfig"}:
         from .diffusers_audio import DiffusersAudioBackend, DiffusersAudioBackendConfig
 
