@@ -89,7 +89,7 @@
       "recommended": false,
       "default_for_backend": true,
       "status": "configured-unvalidated-gated",
-      "tasks": ["text_to_audio", "text_to_music"],
+      "tasks": ["text_to_audio"],
       "input_modalities": ["text"],
       "output_formats": ["wav"],
       "supports_lyrics": false,

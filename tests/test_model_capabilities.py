@@ -113,7 +113,7 @@ def test_stable_audio_registry_metadata():
 
     spec = MusicModelCapabilitiesRegistry().get("stabilityai/stable-audio-open-small")
 
-    assert spec.supports_task("text_to_music")
+    assert not spec.supports_task("text_to_music")
     assert spec.supports_task("text_to_audio")
     assert spec.commercial_allowed is False
     assert spec.max_duration_s == 11

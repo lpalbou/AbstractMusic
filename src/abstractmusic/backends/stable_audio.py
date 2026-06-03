@@ -182,7 +182,7 @@ class StableAudioBackend:
 
     def get_capabilities(self) -> MusicBackendCapabilities:
         return MusicBackendCapabilities(
-            supported_tasks=("text_to_audio", "text_to_music"),
+            supported_tasks=("text_to_audio",),
             output_formats=("wav",),
             supports_lyrics=False,
             supports_negative_prompt=False,
@@ -199,14 +199,14 @@ class StableAudioBackend:
         )
 
     def list_provider_models(self, *, task: Optional[str] = None) -> Sequence[ProviderModelInfo]:
-        if task is not None and task not in {"text_to_audio", "text_to_music"}:
+        if task is not None and task not in {"text_to_audio"}:
             return ()
         return (
             ProviderModelInfo(
                 id=str(self._config.model_id),
                 object="model",
                 owned_by="stabilityai",
-                capabilities=("text_to_audio", "text_to_music"),
+                capabilities=("text_to_audio",),
                 raw={"license": "Stability AI Community License", "backend": self.backend_id},
             ),
         )

@@ -6,6 +6,13 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.13] - 2026-06-03
+
+### Changed
+
+- Added route-specific audio generation registry coverage so music output and sound-effects output can be selected independently by hosts.
+- Tightened Stable Audio model capability metadata and plugin discovery tests for the separated `output.music` and `output.sound` routes.
+
 ## [0.1.12] - 2026-05-23
 
 ### Changed

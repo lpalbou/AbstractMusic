@@ -588,9 +588,10 @@ def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_
     assert provider_ids == {
         "acemusic",
         "acestep",
-        "stable-audio",
         "stable-audio-3",
     }
+    audio_provider_ids = {item["provider_id"] for item in cap.available_providers(task="text_to_audio")}
+    assert "stable-audio" in audio_provider_ids
     assert all(item["capability"] == "music" for item in providers)
     assert "heartmula" not in provider_ids
     assert "yue" not in provider_ids
@@ -617,13 +618,16 @@ def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_
     assert "ACE-Step/acestep-5Hz-lm-0.6B" not in model_ids
     assert not any(model_id.startswith("Runware/acestep-") for model_id in model_ids)
 
-    stability_models = cap.list_models(task="text_to_music", provider="stable-audio")
+    stability_models = cap.list_models(task="text_to_audio", provider="stable-audio")
     stability_model_ids = {item["model_id"] for item in stability_models}
     assert "stabilityai/stable-audio-open-small" in stability_model_ids
     stable_open = next(item for item in stability_models if item["model_id"] == "stabilityai/stable-audio-open-small")
     assert stable_open["provider_id"] == "stable-audio"
     assert stable_open["backend_id"] == "abstractmusic:stable-audio"
     assert "stabilityai/stable-audio-3-small-music" not in stability_model_ids
+
+    music_stability_models = cap.list_models(task="text_to_music", provider="stable-audio")
+    assert "stabilityai/stable-audio-open-small" not in {item["model_id"] for item in music_stability_models}
 
     all_models = cap.list_models(task="text_to_music")
     all_provider_ids = {item["provider_id"] for item in all_models}
