@@ -9,6 +9,72 @@ AbstractMusic is organized around a small public contract:
 - `GeneratedAsset`: binary media result with MIME type and metadata.
 - Model capability registry: packaged metadata describing known providers and model constraints.
 
+## Components
+
+```mermaid
+flowchart TB
+    subgraph entry ["Entry points"]
+        CLI["CLI / REPL<br/>abstractmusic"]
+        LIB["Library<br/>MusicManager"]
+        PLUGIN["AbstractCore plugin<br/>music capability"]
+    end
+
+    subgraph core ["Core contract"]
+        MANAGER["MusicManager"]
+        PLANNER["Prompt planner<br/>MusicPlanningRequest to MusicPromptPlan"]
+        REQUEST["AudioGenerationRequest"]
+        REGISTRY["Model capability registry<br/>packaged JSON metadata"]
+        AVAIL["availability<br/>cache probe + endpoint probe"]
+    end
+
+    subgraph backends ["MusicBackend implementations"]
+        REMOTE["Remote<br/>acemusic, elevenlabs"]
+        LOCAL["Local<br/>acestep, stable-audio,<br/>stable-audio-3, diffusers, musicgen"]
+    end
+
+    ASSET["GeneratedAsset<br/>bytes + MIME + metadata"]
+    STORE["MediaStore<br/>optional artifact persistence"]
+
+    CLI --> MANAGER
+    LIB --> MANAGER
+    PLUGIN --> MANAGER
+    PLUGIN --> REGISTRY
+    PLUGIN --> AVAIL
+    MANAGER --> PLANNER
+    PLANNER --> REQUEST
+    MANAGER --> REQUEST
+    MANAGER --> REGISTRY
+    REQUEST --> REMOTE
+    REQUEST --> LOCAL
+    REMOTE --> ASSET
+    LOCAL --> ASSET
+    ASSET --> STORE
+```
+
+Heavy model runtimes load only inside a local backend, on the generation path. Every other box in
+this diagram runs on the standard library plus packaged metadata.
+
+## Discovery Flow
+
+Discovery answers "what can this machine run right now" without loading a model.
+
+```mermaid
+flowchart LR
+    ASK["available_providers(task)<br/>provider_details(task)"] --> REG["Registry<br/>runnable models per provider"]
+    REG --> SPLIT{"Provider kind"}
+
+    SPLIT -->|local| DEPS["Runtime extra installed?<br/>importlib.util.find_spec"]
+    DEPS --> CACHE["Weights in the<br/>Hugging Face cache?"]
+    CACHE --> STATE["Provider state<br/>usable + status + reason"]
+
+    SPLIT -->|remote| KEY["API key configured?"]
+    KEY --> PROBE["Probe endpoint<br/>all providers in parallel, 5s deadline"]
+    PROBE --> STATE
+
+    STATE --> USABLE["available_providers<br/>usable providers only"]
+    STATE --> ALL["provider_details<br/>every provider, with reasons"]
+```
+
 ## Provider Boundary
 
 Provider-specific logic belongs in backends. The public API should not become ACE-Step-specific,
@@ -38,9 +104,25 @@ or `generate_structured(...)`, records planner provenance, and never receives ra
 provider/facade objects.
 
 The plugin surface is bidirectional: AbstractCore can also discover AbstractMusic providers,
-models, and operations through lightweight `available_providers(...)`, `list_models(...)`,
-`list_operations(...)`, and `capability_catalog(...)` methods. These discovery methods read the
-packaged model metadata and must not load generation backends.
+models, and operations through lightweight `available_providers(...)`, `provider_details(...)`,
+`list_models(...)`, `list_operations(...)`, and `capability_catalog(...)` methods.
+
+## Discovery Boundary
+
+Discovery reads packaged model metadata and never loads a generation backend or imports
+`torch`, `transformers`, or `diffusers`. Availability comes from `abstractmusic.availability`,
+which is standard-library only:
+
+- A local provider is usable when its runtime extra is installed and at least one of its models
+  already has weights in the Hugging Face cache. Cache-root resolution mirrors `huggingface_hub`,
+  so discovery looks where the loader will look, and presence honours the checked-out revision and
+  shard index files.
+- A remote provider is usable when an API key is configured and its endpoint answers. Remote
+  providers are probed concurrently under a single 5-second deadline, and results are reused for a
+  short window so repeated discovery calls do not re-probe.
+
+`available_providers(...)` returns usable providers; `provider_details(...)` returns every known
+provider with a `usable` flag and the reason it is not, so an empty list is always explainable.
 
 ## Dependency Boundary
 

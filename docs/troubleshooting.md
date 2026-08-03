@@ -67,6 +67,43 @@ Verify the CLI sees the backend:
 abstractmusic --backend acestep t2m "short ambient synth loop" --out out.wav --duration 10
 ```
 
+## AbstractCore discovery lists no music providers
+
+`available_providers(...)` reports only providers that can run right now. A provider is left out
+when its runtime extra is not installed, when its weights are not in the Hugging Face cache, or when
+its remote API does not answer. Ask the same capability object for `provider_details(...)`, which
+reports every provider along with the reason it is unusable:
+
+```python
+for item in capability.provider_details(task="text_to_music"):
+    print(item["provider_id"], item["usable"], item["status"], item["metadata"]["reason"])
+```
+
+Match the reported `status` to the fix:
+
+| `status` | Meaning | Fix |
+| --- | --- | --- |
+| `not-installed` | The optional runtime extra is missing. | `pip install "abstractmusic[acestep]"` |
+| `no-local-weights` | The runtime is installed, but no model is downloaded. | Download a model id from `metadata.models` |
+| `not-configured` | No API key for a remote provider. | Set `ACEMUSIC_API_KEY` or `ELEVENLABS_API_KEY` |
+| `unauthorized` | The API rejected the key. | Check the key and its account entitlements |
+| `unreachable` | The endpoint did not answer within 5 seconds. | Check connectivity, base URL, and any proxy |
+| `unavailable` | The provider returned a server error. | Retry later; check the provider's status page |
+
+`metadata.cached_models` lists which of the provider's models are already downloaded, and
+`metadata.models` lists everything it supports, so you can see what is available to fetch.
+
+If a model looks downloaded but still reports `no-local-weights`, the cached copy is incomplete —
+a sharded checkpoint missing some of its shards is reported as not ready, because loading it would
+start a large download. Check a specific model id directly:
+
+```bash
+python -c "from abstractmusic.availability import hf_cache_root, is_model_cached; print(hf_cache_root(), is_model_cached('ACE-Step/acestep-v15-xl-turbo-diffusers'))"
+```
+
+If that prints `False` for a model you expect, re-run the download to completion. See
+[Architecture](architecture.md#discovery-boundary) for how availability is determined.
+
 ## ACE-Step downloads or cache access fails
 
 The local `acestep` backend uses Hugging Face model weights. It does not accept local ACE-Step

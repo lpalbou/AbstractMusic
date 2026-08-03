@@ -6,6 +6,51 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.14] - 2026-08-03
+
+### Changed
+
+- Made AbstractCore music discovery cold-start cheap. `available_providers`, `list_models`,
+  `list_provider_models`, and `capability_catalog` no longer import `torch`, `transformers`, or
+  `diffusers`: a full `capability_catalog(task="text_to_music")` went from ~6-30s and ~3800 loaded
+  modules to ~0.03s and ~190 modules.
+- Local provider availability is now answered from the filesystem: a provider is reported when its
+  optional runtime is installed **and** at least one of its models already has weights in the
+  Hugging Face cache. `list_models` reports the models that can run now, each with
+  `metadata.cached`.
+- Remote provider availability is now measured instead of assumed. Providers with an API key
+  configured are probed concurrently, in a single round bounded by a 5s deadline; a provider whose
+  API rejects the key or does not answer is no longer reported as available. An unresponsive
+  provider costs that deadline once, not once per discovery call, and never accumulates threads.
+- ACE-Step runtime detection checks whether the installed `diffusers` ships the ACE-Step pipeline by
+  inspecting the package on disk. This is correct for pre-releases, editable installs, and source
+  checkouts.
+
+### Compatibility
+
+- Discovery results are narrower than in 0.1.13. `available_providers(...)` and `list_models(...)`
+  now omit local providers whose weights are not downloaded and remote providers that do not answer,
+  where previously they were listed as available. If you relied on those methods for the full
+  catalog, use `provider_details(...)`, or read the packaged registry through
+  `MusicModelCapabilitiesRegistry`, which is unchanged and still lists every known model.
+
+### Added
+
+- `provider_details(task=...)` on the capability, also included in `capability_catalog(...)`. It
+  reports every known provider with `usable` plus the reason it is not — rejected credentials, an
+  uninstalled extra, or weights that have not been downloaded — along with its full model catalog
+  and which of those models are cached. `available_providers(...)` stays limited to runnable
+  providers, so an empty list is no longer a dead end. (Addresses backlog 0087.)
+- `abstractmusic.availability`: a stdlib-only module for Hugging Face cache-presence checks
+  (`hf_cache_root`, `is_model_cached`, `cached_model_ids`) and bounded parallel endpoint probes
+  (`RemoteEndpoint`, `probe_endpoints`). It mirrors `huggingface_hub`'s own cache-root precedence so
+  discovery looks exactly where the loader will look, without adding a dependency. Presence honours
+  the checked-out revision and shard index files, so a half-downloaded checkpoint is not reported as
+  ready; leftover `.incomplete` blobs, which `huggingface_hub` keeps for resuming, do not hide an
+  otherwise complete model.
+- `health_endpoint()` on `AceMusicBackendConfig` and `ElevenLabsMusicBackendConfig`, so each remote
+  backend owns the endpoint and auth header used to check that it is answering.
+
 ## [0.1.13] - 2026-06-03
 
 ### Changed

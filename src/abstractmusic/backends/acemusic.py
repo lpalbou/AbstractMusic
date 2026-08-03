@@ -16,6 +16,7 @@ import wave
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Sequence, Tuple
 
+from ..availability import RemoteEndpoint
 from ..errors import AbstractMusicError, CapabilityNotSupportedError
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities, ProviderModelInfo
 
@@ -184,6 +185,16 @@ class AceMusicBackendConfig:
         return cls(
             base_url=_env("ACEMUSIC_BASE_URL") or _DEFAULT_BASE_URL,
             api_key=_env("ACEMUSIC_API_KEY"),
+        )
+
+    def health_endpoint(self) -> Optional[RemoteEndpoint]:
+        """Return a cheap read-only endpoint proving this API answers, if configured."""
+
+        if not self.api_key:
+            return None
+        return RemoteEndpoint(
+            url=_join_url(self.base_url, "/v1/models"),
+            headers={"Authorization": f"Bearer {self.api_key}"},
         )
 
 

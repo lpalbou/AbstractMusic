@@ -1,5 +1,4 @@
 import pytest
-import types
 
 from abstractmusic.types import GeneratedAsset, MusicBackendCapabilities
 from abstractmusic.errors import AbstractMusicError, CapabilityNotSupportedError
@@ -565,8 +564,11 @@ def test_capability_uses_core_like_host_context_text_service():
 
 
 @pytest.mark.unit
-def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_labels(monkeypatch):
+def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_labels(
+    monkeypatch, cache_model
+):
     import abstractmusic.integrations.abstractcore_plugin as plugin
+    from abstractmusic import availability
     from abstractmusic.integrations.abstractcore_plugin import register
 
     monkeypatch.setenv("ACEMUSIC_API_KEY", "test-acemusic-key")
@@ -577,6 +579,22 @@ def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_
         "_runtime_installed",
         lambda extra: extra in {"acestep", "stable-audio", "stable-audio-3"},
     )
+    monkeypatch.setattr(
+        availability,
+        "probe_endpoint",
+        lambda endpoint, timeout_s=0.0: availability.RemoteProbe(
+            status="available" if "acemusic" in endpoint.url else "unreachable"
+        ),
+    )
+    for repo_id in (
+        "ACE-Step/Ace-Step1.5",
+        "ACE-Step/acestep-v15-base",
+        "ACE-Step/acestep-v15-sft",
+        "ACE-Step/acestep-v15-xl-turbo-diffusers",
+        "stabilityai/stable-audio-open-small",
+        "stabilityai/stable-audio-3-small-music",
+    ):
+        cache_model(repo_id)
 
     reg = _Registry()
     register(reg)
@@ -669,14 +687,13 @@ def test_runtime_dependency_probe_requires_real_local_backend_runtime(monkeypatc
         "find_spec",
         lambda name: object() if name in available_specs else None,
     )
-    monkeypatch.setattr(
-        plugin.importlib,
-        "import_module",
-        lambda name: types.SimpleNamespace(__version__="0.37.0") if name == "diffusers" else None,
-    )
-
+    # ACE-Step needs `diffusers.AceStepPipeline`; older diffusers do not ship it.
+    monkeypatch.setattr(plugin, "_package_ships_module", lambda package, *parts: False)
     assert plugin._runtime_installed("acestep") is False
     assert plugin._runtime_installed("stable-audio") is False
+
+    monkeypatch.setattr(plugin, "_package_ships_module", lambda package, *parts: True)
+    assert plugin._runtime_installed("acestep") is True
 
 @pytest.mark.unit
 def test_capability_residency_load_list_unload_for_local_backend():

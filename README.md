@@ -237,9 +237,12 @@ does not receive raw provider objects, and keeps the deterministic fallback for 
 The AbstractCore plugin also exposes lightweight music discovery methods (`available_providers`,
 `list_models`, `list_provider_models`, `list_operations`, and `capability_catalog`) from packaged
 metadata. Discovery uses backend-oriented provider ids such as `acemusic`, `elevenlabs`,
-`acestep`, `stable-audio`, and `stable-audio-3`, and only reports providers/models whose runtime
-is usable in the current environment. These methods are import-light and must not instantiate model
-runtimes.
+`acestep`, `stable-audio`, and `stable-audio-3`, and only reports what can run right now: a local
+provider needs its runtime installed and its weights already in the Hugging Face cache, and a remote
+provider needs an API key plus an endpoint that answers. Remote providers are probed concurrently
+under a 5s deadline. These methods never import a model runtime and never load weights.
+`provider_details(task=...)` complements them by listing every known provider with why it is or is
+not usable, plus which of its models are already downloaded.
 
 ## Licensing note
 

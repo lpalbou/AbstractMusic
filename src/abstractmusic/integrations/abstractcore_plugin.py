@@ -22,9 +22,12 @@ import os
 import re
 import threading
 import time
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from ..artifacts import RuntimeArtifactStoreAdapter
+from ..availability import RemoteEndpoint, cached_model_ids, is_model_cached, probe_endpoints
 from ..errors import AbstractMusicError, CapabilityNotSupportedError
 from ..huggingface import require_hf_repo_id
 from ..model_capabilities import MusicModelCapabilitiesRegistry, MusicModelSpec
@@ -53,6 +56,45 @@ _BACKEND_ID_TO_KIND = {
 _BACKEND_KIND_TO_ID = {kind: backend_id for backend_id, kind in _BACKEND_ID_TO_KIND.items()}
 
 _NON_RUNNABLE_MODEL_STATUS_PREFIXES = ("planned", "research")
+
+_REMOTE_BACKEND_KINDS = frozenset({"acemusic", "elevenlabs"})
+
+# Where `diffusers` keeps `AceStepPipeline`, relative to the package root.
+_ACESTEP_PIPELINE_MODULE = ("pipelines", "ace_step")
+
+# Extra to report for a provider that is discoverable without a registry entry.
+_DEFAULT_DEPENDENCY_EXTRA = {"diffusers": "diffusers"}
+
+
+# Owner-config prefix per remote backend kind. The environment variables behind
+# each provider stay owned by its own `BackendConfig.from_env()`.
+_REMOTE_CONFIG_PREFIX = {"acemusic": "music_acemusic", "elevenlabs": "music_elevenlabs"}
+
+
+@dataclass(frozen=True)
+class _ProviderState:
+    """What one provider can do on this machine, right now.
+
+    `installed` is about the Python runtime, `configured` is about what the
+    provider needs in order to answer — credentials for a remote API, cached
+    weights for a local one — and `usable` is what discovery filters on.
+    """
+
+    backend_kind: str
+    provider_id: str
+    backend_id: str
+    remote: bool
+    installed: Optional[bool]
+    configured: bool
+    usable: bool
+    status: str
+    detail: str = ""
+    models: Tuple[MusicModelSpec, ...] = ()
+    #: Everything this provider knows about, runnable or not, for `provider_details`.
+    known_models: Tuple[MusicModelSpec, ...] = ()
+    cached_model_ids: FrozenSet[str] = frozenset()
+    configured_model_id: Optional[str] = None
+    latency_ms: Optional[int] = None
 
 _RUNTIME_IMPORTS_BY_EXTRA = {
     "remote": (),
@@ -283,6 +325,27 @@ def _model_status_is_runnable(value: Any) -> bool:
     return not any(status.startswith(prefix) for prefix in _NON_RUNNABLE_MODEL_STATUS_PREFIXES)
 
 
+def _package_ships_module(package: str, *relative_parts: str) -> bool:
+    """Answer "does this installed package contain this submodule" without importing it.
+
+    ``find_spec`` on a *dotted* name imports every parent package first, which
+    for ``diffusers`` means importing ``torch`` — the cost this whole path
+    exists to avoid. Locating the top-level package and looking at the
+    filesystem does not, and unlike a version comparison it survives
+    pre-releases, editable installs, and source checkouts with no metadata.
+    """
+
+    try:
+        spec = importlib.util.find_spec(str(package))
+    except (ImportError, ValueError):
+        return False
+    for location in getattr(spec, "submodule_search_locations", None) or ():
+        candidate = Path(location).joinpath(*relative_parts)
+        if candidate.is_dir() or candidate.with_suffix(".py").is_file():
+            return True
+    return False
+
+
 def _runtime_installed(extra: Optional[str]) -> Optional[bool]:
     extra_name = str(extra or "").strip()
     imports = _RUNTIME_IMPORTS_BY_EXTRA.get(extra_name)
@@ -292,29 +355,16 @@ def _runtime_installed(extra: Optional[str]) -> Optional[bool]:
         return False
 
     if extra_name == "acestep":
-        try:
-            diffusers_mod = importlib.import_module("diffusers")
-        except Exception:
-            return False
-        return getattr(diffusers_mod, "AceStepPipeline", None) is not None
+        return _package_ships_module("diffusers", *_ACESTEP_PIPELINE_MODULE)
 
     return True
-
-
-def _spec_matches_provider(spec: MusicModelSpec, provider: Optional[str]) -> bool:
-    if provider is None:
-        return True
-    backend_kind = _provider_filter_backend_kind(provider)
-    if backend_kind is None:
-        return False
-    return _registered_backend_kind_for_spec(spec) == backend_kind
 
 
 def _selected_backend_kind(backend_id: str) -> Optional[str]:
     return _BACKEND_ID_TO_KIND.get(str(backend_id or ""))
 
 
-def _backend_id_for_spec(spec: MusicModelSpec, *, default_backend_id: str) -> Optional[str]:
+def _backend_id_for_spec(spec: MusicModelSpec) -> Optional[str]:
     for kind in spec.backend_kinds:
         backend_id = _BACKEND_KIND_TO_ID.get(str(kind))
         if backend_id:
@@ -322,12 +372,18 @@ def _backend_id_for_spec(spec: MusicModelSpec, *, default_backend_id: str) -> Op
     return None
 
 
-def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[str, Any]:
+def _model_record_from_spec(
+    spec: MusicModelSpec,
+    *,
+    backend_id: str,
+    installed: Optional[bool],
+    cached: Optional[bool],
+) -> Dict[str, Any]:
     backend_kind = _registered_backend_kind_for_spec(spec)
     provider_id = _provider_id_for_backend_kind(backend_kind)
     remote = bool(spec.raw.get("remote", False))
     local = bool(spec.raw.get("local", not remote))
-    routed_backend_id = _backend_id_for_spec(spec, default_backend_id=backend_id)
+    routed_backend_id = _backend_id_for_spec(spec)
     return {
         "model_id": spec.id,
         "provider_id": provider_id,
@@ -349,7 +405,8 @@ def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[st
             "backend_kind": backend_kind,
             "backend_kinds": list(spec.backend_kinds),
             "dependency_extra": spec.dependency_extra,
-            "installed": _runtime_installed(spec.dependency_extra),
+            "installed": installed,
+            "cached": cached,
             "supports_lyrics": bool(spec.supports_lyrics),
             "supports_negative_prompt": bool(spec.supports_negative_prompt),
             "supports_guidance_scale": bool(spec.supports_guidance_scale),
@@ -361,7 +418,14 @@ def _model_record_from_spec(spec: MusicModelSpec, *, backend_id: str) -> Dict[st
     }
 
 
-def _configured_diffusers_model_record(owner: Any, *, backend_id: str, task: Optional[str]) -> Optional[Dict[str, Any]]:
+def _configured_diffusers_model_record(
+    owner: Any,
+    *,
+    backend_id: str,
+    task: Optional[str],
+    installed: Optional[bool],
+    cached: Optional[bool],
+) -> Optional[Dict[str, Any]]:
     model_id = _owner_cfg(owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID")
     if not model_id:
         return None
@@ -385,7 +449,8 @@ def _configured_diffusers_model_record(owner: Any, *, backend_id: str, task: Opt
             "backend_kind": "diffusers",
             "backend_kinds": ["diffusers"],
             "dependency_extra": "diffusers",
-            "installed": _runtime_installed("diffusers"),
+            "installed": installed,
+            "cached": cached,
         },
     }
 
@@ -862,184 +927,267 @@ class _AbstractMusicCapabilityBase:
             text_planner_mode=self._get_text_planner_mode(),
         )
 
-    def _remote_backend_is_configured(self, backend_kind: str) -> bool:
+    def _remote_health_endpoint(self, backend_kind: str) -> Optional[RemoteEndpoint]:
+        """Return the probe endpoint for a remote provider, or None when unconfigured.
+
+        Discovery reads configuration, never a backend instance: it answers for
+        every provider, not just the selected one. Environment resolution is left
+        to each backend's own `from_env()`; only owner config is layered on top.
+        """
+
         kind = str(backend_kind or "").strip()
+        prefix = _REMOTE_CONFIG_PREFIX.get(kind)
+        if prefix is None:
+            return None
         if kind == "acemusic":
-            return bool(_owner_cfg(self._owner, "music_acemusic_api_key") or _env("ACEMUSIC_API_KEY"))
-        if kind == "elevenlabs":
-            return bool(_owner_cfg(self._owner, "music_elevenlabs_api_key") or _env("ELEVENLABS_API_KEY"))
-        return False
-
-    def _backend_runtime_state(self, backend_kind: str, *, dependency_extras: Optional[List[str]] = None) -> Dict[str, Any]:
-        kind = str(backend_kind or "").strip()
-        provider_id = _provider_id_for_backend_kind(kind)
-        backend_id = _BACKEND_KIND_TO_ID.get(kind)
-        remote = kind in {"acemusic", "elevenlabs"}
-        local = bool(kind) and not remote
-        configured: Optional[bool]
-        installed: Optional[bool]
-        usable = False
-
-        if remote:
-            installed = True
-            configured = self._remote_backend_is_configured(kind)
-            usable = bool(configured)
+            from ..backends.acemusic import AceMusicBackendConfig as ConfigClass
         else:
-            extras = _dedupe_strings(dependency_extras or [])
-            if not extras and kind == "diffusers":
-                extras = ["diffusers"]
-            installed_values = [_runtime_installed(extra) for extra in extras]
-            installed_known = [value for value in installed_values if value is not None]
-            installed = any(installed_known) if installed_known else None
-            if kind == "diffusers":
-                configured = bool(_owner_cfg(self._owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID"))
-                usable = bool(installed) and bool(configured)
+            from ..backends.elevenlabs_music import ElevenLabsMusicBackendConfig as ConfigClass
+
+        config = ConfigClass.from_env()
+        overrides: Dict[str, Any] = {}
+        for field_name in ("base_url", "api_key"):
+            value = _owner_cfg(self._owner, f"{prefix}_{field_name}")
+            if value:
+                overrides[field_name] = value
+        if overrides:
+            config = replace(config, **overrides)
+        return config.health_endpoint()
+
+    def _provider_states(self, *, task: Optional[str] = None) -> Dict[str, _ProviderState]:
+        """Resolve what every provider can do on this machine, right now.
+
+        Local providers are answered from the filesystem (are the weights here?)
+        and remote providers from one parallel round of short HTTP probes. No
+        model runtime is imported and no weights are read.
+        """
+
+        specs_by_kind: Dict[str, List[MusicModelSpec]] = {}
+        for spec in self._registry_models(task=task):
+            backend_kind = _registered_backend_kind_for_spec(spec)
+            if not backend_kind or not _model_status_is_runnable(spec.status):
+                continue
+            specs_by_kind.setdefault(backend_kind, []).append(spec)
+
+        endpoints: Dict[str, RemoteEndpoint] = {}
+        for kind in specs_by_kind:
+            if kind not in _REMOTE_BACKEND_KINDS:
+                continue
+            endpoint = self._remote_health_endpoint(kind)
+            if endpoint is not None:
+                endpoints[kind] = endpoint
+        probes = probe_endpoints(endpoints) if endpoints else {}
+
+        states: Dict[str, _ProviderState] = {}
+        for kind, specs in specs_by_kind.items():
+            if kind in _REMOTE_BACKEND_KINDS:
+                states[kind] = self._remote_provider_state(kind, specs, probes.get(kind))
             else:
-                configured = bool(installed)
-                usable = bool(installed)
+                states[kind] = self._local_provider_state(kind, specs)
 
-        return {
-            "provider_id": provider_id,
-            "display_name": _display_name(provider_id),
-            "backend_kind": kind,
-            "backend_id": backend_id,
-            "local": local,
-            "remote": remote,
-            "installed": installed,
-            "configured": configured,
-            "usable": bool(usable),
-        }
+        if "diffusers" not in states:
+            # A user-configured checkpoint has no registry entry; a registry-derived
+            # diffusers provider, if one ever exists, is the more informative answer.
+            diffusers_state = self._configured_diffusers_state()
+            if diffusers_state is not None:
+                states["diffusers"] = diffusers_state
+        return states
 
-    def _iter_discoverable_specs(
+    def _remote_provider_state(
+        self,
+        backend_kind: str,
+        specs: List[MusicModelSpec],
+        probe: Optional[Any],
+    ) -> _ProviderState:
+        configured = probe is not None
+        if probe is None:
+            status, detail, usable = "not-configured", "no API key configured", False
+        else:
+            status, detail, usable = probe.status, probe.detail, probe.usable
+        return _ProviderState(
+            backend_kind=backend_kind,
+            provider_id=_provider_id_for_backend_kind(backend_kind),
+            backend_id=str(_BACKEND_KIND_TO_ID.get(backend_kind) or ""),
+            remote=True,
+            installed=True,
+            configured=configured,
+            usable=usable,
+            status=status,
+            detail=detail,
+            models=tuple(specs) if usable else (),
+            known_models=tuple(specs),
+            latency_ms=getattr(probe, "latency_ms", None),
+        )
+
+    def _local_provider_state(self, backend_kind: str, specs: List[MusicModelSpec]) -> _ProviderState:
+        installed_by_extra: Dict[str, Optional[bool]] = {}
+        runnable: List[MusicModelSpec] = []
+        for spec in specs:
+            extra = str(spec.dependency_extra or "")
+            if extra not in installed_by_extra:
+                installed_by_extra[extra] = _runtime_installed(spec.dependency_extra)
+            if installed_by_extra[extra] is True:
+                runnable.append(spec)
+
+        installed_values = [value for value in installed_by_extra.values() if value is not None]
+        installed = any(installed_values) if installed_values else None
+        present = cached_model_ids(spec.id for spec in runnable) if runnable else frozenset()
+        models = tuple(spec for spec in runnable if spec.id in present)
+
+        if installed is not True:
+            status, detail = "not-installed", "runtime dependencies are not installed"
+        elif not models:
+            status, detail = "no-local-weights", "no model weights found in the Hugging Face cache"
+        else:
+            status, detail = "available", ""
+
+        return _ProviderState(
+            backend_kind=backend_kind,
+            provider_id=_provider_id_for_backend_kind(backend_kind),
+            backend_id=str(_BACKEND_KIND_TO_ID.get(backend_kind) or ""),
+            remote=False,
+            installed=installed,
+            configured=bool(models),
+            usable=bool(models),
+            status=status,
+            detail=detail,
+            models=models,
+            known_models=tuple(specs),
+            cached_model_ids=frozenset(present),
+        )
+
+    def _configured_diffusers_state(self) -> Optional[_ProviderState]:
+        """State for a user-configured Diffusers checkpoint, which has no registry entry."""
+
+        model_id = _owner_cfg(self._owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID")
+        if not model_id:
+            return None
+        installed = _runtime_installed("diffusers")
+        cached = bool(installed) and is_model_cached(str(model_id))
+        if installed is not True:
+            status, detail = "not-installed", "runtime dependencies are not installed"
+        elif not cached:
+            status, detail = "no-local-weights", f"{model_id} is not in the Hugging Face cache"
+        else:
+            status, detail = "available", ""
+        return _ProviderState(
+            backend_kind="diffusers",
+            provider_id=_provider_id_for_backend_kind("diffusers"),
+            backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
+            remote=False,
+            installed=installed,
+            configured=True,
+            usable=bool(cached),
+            status=status,
+            detail=detail,
+            models=(),
+            configured_model_id=str(model_id),
+            cached_model_ids=frozenset({str(model_id)}) if cached else frozenset(),
+        )
+
+    def _registry_models(self, *, task: Optional[str] = None) -> List[MusicModelSpec]:
+        return list(MusicModelCapabilitiesRegistry().list_models(task=_normalize_task(task)))
+
+    def available_providers(
         self,
         *,
         task: Optional[str] = None,
-        provider: Optional[str] = None,
-    ) -> List[tuple[MusicModelSpec, str, Dict[str, Any]]]:
-        provider_filter = provider if provider is not None else None
-        wanted_backend_kind = _provider_filter_backend_kind(provider_filter)
-        out: List[tuple[MusicModelSpec, str, Dict[str, Any]]] = []
-        for spec in self._registry_models(task=task):
-            backend_kind = _registered_backend_kind_for_spec(spec)
-            if not backend_kind:
-                continue
-            if wanted_backend_kind is not None:
-                if backend_kind != wanted_backend_kind:
-                    continue
-            elif provider_filter is not None and not _spec_matches_provider(spec, provider_filter):
-                continue
-            if not _model_status_is_runnable(spec.status):
-                continue
-            state = self._backend_runtime_state(
-                backend_kind,
-                dependency_extras=[spec.dependency_extra] if spec.dependency_extra else [],
-            )
-            if not state["usable"]:
-                continue
-            out.append((spec, backend_kind, state))
-        return out
+        _states: Optional[Dict[str, "_ProviderState"]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return the music providers that are usable on this machine right now.
 
-    def _registry_models(self, *, task: Optional[str] = None, provider: Optional[str] = None) -> List[MusicModelSpec]:
-        registry = MusicModelCapabilitiesRegistry()
-        models = [
-            spec
-            for spec in registry.list_models(task=_normalize_task(task))
-            if _spec_matches_provider(spec, provider)
-        ]
-        return list(models)
-
-    def available_providers(self, *, task: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Return lightweight music provider availability without loading model runtimes."""
+        Local providers are usable when their weights are already cached; remote
+        providers when their API answers. Nothing here loads a model runtime.
+        Use `provider_details(...)` to see the providers that were left out and
+        why.
+        """
 
         task_s = _normalize_task(task)
-        selected_kind = _selected_backend_kind(str(getattr(self, "backend_id", "")))
-        providers: Dict[str, Dict[str, Any]] = {}
-        for spec, backend_kind, state in self._iter_discoverable_specs(task=task_s):
-            provider_id = str(state["provider_id"])
-            backend_id = str(state["backend_id"] or "")
-            entry = providers.setdefault(
-                provider_id,
-                {
-                    "provider_id": provider_id,
-                    "display_name": _display_name(provider_id),
-                    "capability": "music",
-                    "tasks": [],
-                    "local": bool(state["local"]),
-                    "remote": bool(state["remote"]),
-                    "status": "available",
-                    "backend_id": backend_id,
-                    "installed": state["installed"],
-                    "configured": state["configured"],
-                    "selected": selected_kind == backend_kind,
-                    "metadata": {
-                        "models": [],
-                        "backend_kind": backend_kind,
-                        "backend_kinds": [],
-                        "dependency_extras": [],
-                    },
-                },
-            )
-            entry["local"] = bool(entry.get("local")) or bool(state["local"])
-            entry["remote"] = bool(entry.get("remote")) or bool(state["remote"])
-            if state["installed"] is not None:
-                entry["installed"] = bool(state["installed"])
-            if state["configured"] is not None:
-                entry["configured"] = bool(state["configured"])
-            for value in spec.tasks:
-                if value not in entry["tasks"]:
-                    entry["tasks"].append(value)
-            entry["metadata"]["models"].append(spec.id)
-            if backend_kind not in entry["metadata"]["backend_kinds"]:
-                entry["metadata"]["backend_kinds"].append(backend_kind)
-            if spec.dependency_extra and spec.dependency_extra not in entry["metadata"]["dependency_extras"]:
-                entry["metadata"]["dependency_extras"].append(spec.dependency_extra)
-
-        diffusers_state = self._backend_runtime_state("diffusers", dependency_extras=["diffusers"])
-        if diffusers_state["usable"]:
-            configured = _configured_diffusers_model_record(
-                self._owner,
-                backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
-                task=task_s,
-            )
-            if configured is not None:
-                provider_id = str(configured["provider_id"])
-                entry = providers.setdefault(
-                    provider_id,
-                    {
-                        "provider_id": provider_id,
-                        "display_name": _display_name(provider_id),
-                        "capability": "music",
-                        "tasks": [],
-                        "local": True,
-                        "remote": False,
-                        "status": "configured",
-                        "backend_id": str(_BACKEND_KIND_TO_ID["diffusers"]),
-                        "installed": diffusers_state["installed"],
-                        "configured": diffusers_state["configured"],
-                        "selected": selected_kind == "diffusers",
-                        "metadata": {"models": [], "backend_kind": "diffusers", "backend_kinds": [], "dependency_extras": []},
-                    },
-                )
-                for value in configured.get("tasks", []):
-                    if value not in entry["tasks"]:
-                        entry["tasks"].append(value)
-                if configured["model_id"] not in entry["metadata"]["models"]:
-                    entry["metadata"]["models"].append(configured["model_id"])
-                if "diffusers" not in entry["metadata"]["backend_kinds"]:
-                    entry["metadata"]["backend_kinds"].append("diffusers")
-                if "diffusers" not in entry["metadata"]["dependency_extras"]:
-                    entry["metadata"]["dependency_extras"].append("diffusers")
-                entry["selected"] = selected_kind == "diffusers"
-
-        for entry in providers.values():
-            entry["metadata"]["models"] = list(dict.fromkeys(entry["metadata"]["models"]))
-            if not entry["tasks"] and task_s:
-                entry["tasks"] = [task_s]
-
-        return sorted(providers.values(), key=lambda item: (not bool(item.get("selected")), str(item["provider_id"])))
+        states = self._provider_states(task=task_s) if _states is None else _states
+        providers = [
+            self._provider_record(state, task=task_s)
+            for state in states.values()
+            if state.usable
+        ]
+        return sorted(providers, key=lambda item: (not bool(item.get("selected")), str(item["provider_id"])))
 
     def list_available_providers(self, *, task: Optional[str] = None) -> List[Dict[str, Any]]:
         return self.available_providers(task=task)
+
+    def provider_details(
+        self,
+        *,
+        task: Optional[str] = None,
+        _states: Optional[Dict[str, "_ProviderState"]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return every known provider with why it is or is not usable.
+
+        `available_providers` answers "what can I run"; this answers "what else
+        is there, and what is missing" — a rejected API key, an uninstalled
+        extra, or weights that have not been downloaded — so an empty provider
+        list is never a dead end. Costs nothing extra: the same probe round
+        backs both.
+        """
+
+        task_s = _normalize_task(task)
+        states = self._provider_states(task=task_s) if _states is None else _states
+        details = []
+        for state in states.values():
+            record = self._provider_record(state, task=task_s, include_all_models=True)
+            record["usable"] = state.usable
+            record["metadata"]["reason"] = state.detail
+            record["metadata"]["cached_models"] = sorted(state.cached_model_ids)
+            if state.latency_ms is not None:
+                record["metadata"]["latency_ms"] = state.latency_ms
+            details.append(record)
+        return sorted(details, key=lambda item: (not bool(item["usable"]), str(item["provider_id"])))
+
+    def _provider_record(
+        self,
+        state: "_ProviderState",
+        *,
+        task: Optional[str],
+        include_all_models: bool = False,
+    ) -> Dict[str, Any]:
+        specs = state.known_models if include_all_models else state.models
+        tasks: List[str] = []
+        models: List[str] = []
+        for spec in specs:
+            for value in spec.tasks:
+                if value not in tasks:
+                    tasks.append(value)
+            if spec.id not in models:
+                models.append(spec.id)
+        if state.configured_model_id and state.configured_model_id not in models:
+            models.append(state.configured_model_id)
+        if not tasks and task:
+            tasks = [task]
+
+        extras = _dedupe_strings([spec.dependency_extra for spec in specs])
+        if not extras:
+            default_extra = _DEFAULT_DEPENDENCY_EXTRA.get(state.backend_kind)
+            extras = [default_extra] if default_extra else []
+
+        return {
+            "provider_id": state.provider_id,
+            "display_name": _display_name(state.provider_id),
+            "capability": "music",
+            "tasks": tasks,
+            "local": not state.remote,
+            "remote": state.remote,
+            "status": state.status,
+            "backend_id": state.backend_id,
+            "installed": state.installed,
+            "configured": state.configured,
+            "selected": _selected_backend_kind(str(getattr(self, "backend_id", ""))) == state.backend_kind,
+            "metadata": {
+                "models": models,
+                "backend_kind": state.backend_kind,
+                "backend_kinds": [state.backend_kind],
+                "dependency_extras": extras,
+                "detail": state.detail,
+            },
+        }
 
     def list_models(
         self,
@@ -1047,26 +1195,42 @@ class _AbstractMusicCapabilityBase:
         task: Optional[str] = None,
         provider: Optional[str] = None,
         provider_id: Optional[str] = None,
+        _states: Optional[Dict[str, "_ProviderState"]] = None,
     ) -> List[Dict[str, Any]]:
-        """Return normalized music model records for AbstractCore discovery."""
+        """Return the music models that can run right now, for usable providers."""
 
         task_s = _normalize_task(task)
         provider_s = provider_id or provider
-        records = [
-            _model_record_from_spec(spec, backend_id=str(state["backend_id"] or ""))
-            for spec, _backend_kind, state in self._iter_discoverable_specs(task=task_s, provider=provider_s)
-        ]
         wanted_backend_kind = _provider_filter_backend_kind(provider_s)
-        if wanted_backend_kind in {None, "diffusers"}:
-            configured = _configured_diffusers_model_record(
-                self._owner,
-                backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
-                task=task_s,
+        if provider_s is not None and wanted_backend_kind is None:
+            return []
+
+        states = self._provider_states(task=task_s) if _states is None else _states
+        records: List[Dict[str, Any]] = []
+        for state in states.values():
+            if not state.usable:
+                continue
+            if wanted_backend_kind is not None and state.backend_kind != wanted_backend_kind:
+                continue
+            if state.configured_model_id:
+                configured = _configured_diffusers_model_record(
+                    self._owner,
+                    backend_id=state.backend_id,
+                    task=task_s,
+                    installed=state.installed,
+                    cached=True,
+                )
+                if configured is not None:
+                    records.append(configured)
+            records.extend(
+                _model_record_from_spec(
+                    spec,
+                    backend_id=state.backend_id,
+                    installed=state.installed,
+                    cached=None if state.remote else True,
+                )
+                for spec in state.models
             )
-            if configured is not None:
-                known_ids = {str(item.get("model_id")) for item in records}
-                if str(configured.get("model_id")) not in known_ids:
-                    records.insert(0, configured)
         return records
 
     def list_provider_models(
@@ -1134,12 +1298,16 @@ class _AbstractMusicCapabilityBase:
         return ["wav"]
 
     def capability_catalog(self, *, task: Optional[str] = None) -> Dict[str, Any]:
+        # Resolve availability once: probing remote providers per sub-call would
+        # multiply the wall-clock cost of an unresponsive provider.
+        states = self._provider_states(task=_normalize_task(task))
         return {
             "capability": "music",
             "backend_id": str(getattr(self, "backend_id", "")),
             "task": _normalize_task(task),
-            "providers": self.available_providers(task=task),
-            "models": self.list_models(task=task),
+            "providers": self.available_providers(task=task, _states=states),
+            "provider_details": self.provider_details(task=task, _states=states),
+            "models": self.list_models(task=task, _states=states),
             "operations": self.list_operations(task=task),
         }
 

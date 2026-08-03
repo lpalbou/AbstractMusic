@@ -17,6 +17,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from ..availability import RemoteEndpoint
 from ..errors import AbstractMusicError, CapabilityNotSupportedError
 from ..prompt_planner import is_instrumental_lyrics
 from ..types import (
@@ -367,6 +368,16 @@ class ElevenLabsMusicBackendConfig:
         return cls(
             base_url=_env("ELEVENLABS_BASE_URL") or _DEFAULT_BASE_URL,
             api_key=_env("ELEVENLABS_API_KEY"),
+        )
+
+    def health_endpoint(self) -> Optional[RemoteEndpoint]:
+        """Return a cheap read-only endpoint proving this API answers, if configured."""
+
+        if not self.api_key:
+            return None
+        return RemoteEndpoint(
+            url=_join_url(self.base_url, "/v1/models"),
+            headers={"xi-api-key": str(self.api_key)},
         )
 
 

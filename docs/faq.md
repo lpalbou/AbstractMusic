@@ -50,6 +50,19 @@ Omni2Sound is CC BY-NC 4.0, very large, CUDA/script-oriented, and focused on vid
 and foley-style generation. It should not be selected silently for commercial-capable music
 generation.
 
+## How does AbstractMusic decide which providers are available?
+
+By checking what can run right now, without loading a model. A local provider is available when its
+runtime extra is installed and at least one of its models already has weights in the Hugging Face
+cache. A remote provider is available when an API key is configured and its endpoint answers a
+probe; all remote providers are probed in parallel under a 5-second deadline.
+
+`available_providers(...)` therefore lists only what you can generate with immediately. To see the
+full picture, including providers you could enable and models you could download, use
+`provider_details(...)`, which reports every provider with a `usable` flag and the reason it is not.
+The packaged registry remains the complete catalog: `abstractmusic repl` then `/models` lists every
+known model regardless of what is installed.
+
 ## Do we use 8-bit models?
 
 When official 8-bit model artifacts exist, they should be preferred. If no official 8-bit artifact

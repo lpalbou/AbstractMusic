@@ -75,12 +75,34 @@ LLM planning injectable without adding an AbstractCore dependency or passing raw
 into AbstractMusic.
 
 The plugin capability object exposes AbstractCore-friendly discovery methods:
-`available_providers(task=...)`, `list_models(task=..., provider=...)`,
-`list_provider_models(...)`, `list_operations(task=...)`, and `capability_catalog(task=...)`.
-They use the packaged model capability registry, do not load model weights, and only surface
-providers/models whose runtime is usable in the current environment. Provider filters are
-backend-oriented ids such as `acemusic`, `elevenlabs`, `acestep`, `stable-audio`,
-`stable-audio-3`, and `diffusers`.
+`available_providers(task=...)`, `provider_details(task=...)`,
+`list_models(task=..., provider=...)`, `list_provider_models(...)`, `list_operations(task=...)`,
+and `capability_catalog(task=...)`.
+They use the packaged model capability registry and only surface providers/models that can run right
+now. Provider filters are backend-oriented ids such as `acemusic`, `elevenlabs`, `acestep`,
+`stable-audio`, `stable-audio-3`, and `diffusers`.
+
+Discovery never imports a model runtime and never loads weights. Availability is answered by two
+cheap probes in `abstractmusic.availability`:
+
+- **Local providers** — the optional runtime must be installed, and at least one of the provider's
+  models must already have weights in the Hugging Face cache. Cache-root resolution mirrors
+  `huggingface_hub` (`HF_HUB_CACHE`, then `HUGGINGFACE_HUB_CACHE`, then `HF_HOME/hub`, then
+  `~/.cache/huggingface/hub`), so discovery looks where the loader will look. Each model record
+  carries `metadata.cached`.
+- **Remote providers** — a provider with an API key configured is probed at its own read-only
+  endpoint. All remote providers are probed concurrently in one round, bounded by a 5s deadline
+  (`abstractmusic.availability.REMOTE_PROBE_TIMEOUT_S`). A provider that rejects the key or does not
+  answer is not reported as available. Results are reused for a short window, and an unresponsive
+  provider is never probed twice concurrently, so a `capability_catalog(...)` call pays that
+  deadline at most once.
+
+`available_providers(...)` answers "what can I run"; `provider_details(...)` answers "what else is
+there, and what is missing". It returns every known provider with a `usable` boolean, a `status`
+(`available`, `unauthorized`, `unavailable`, `unreachable`, `not-configured`, `not-installed`,
+`no-local-weights`), `metadata.reason`, the provider's full model catalog in `metadata.models`, and
+the subset already downloaded in `metadata.cached_models`. Use it whenever `available_providers(...)`
+comes back short, and to show users what they could install or download.
 
 When running under AbstractCore, the capability object also exposes an optional residency surface
 for local backends:
