@@ -16,8 +16,8 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 ## Status counts
 
 - Planned: 2
-- Proposed: 3
-- Completed: 12
+- Proposed: 5
+- Completed: 13
 - Deprecated: 5
 - Recurrent: 2
 
@@ -56,6 +56,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | 2026-05-21 | `completed/0084_music_capability_residency_contract.md` | Exposed Core-friendly load/list/unload residency for local music engines without confusing remote discovery with local loaded state. |
 | 2026-05-21 | `completed/0085_truthful_stable_audio_capability_registration_and_music_routing.md` | Registered Stable Audio Open Small as a real capability backend and aligned discovery/catalog routing truth. |
 | 2026-05-21 | `completed/0086_repl_ux_and_default_model_routing_hardening.md` | Made the REPL discoverable and robust (engine/model routing, aligned model listing, downloads toggle, and data-driven defaults). |
+| 2026-08-04 | `completed/0089_checkpoint_aware_caption_enhancement.md` | Added registry-driven caption sensitivity so structure/auto-lyrics render compact captions on guided XL checkpoints; 60s automated gate runs on XL sft (base pending; the full-bundle 60s control later failed listening on rhythm — 0090). |
 
 ## Proposed work
 
@@ -64,6 +65,8 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | `proposed/0080_text_planning_provider_contract_for_music.md` | Promote when advanced music quality requires LLM-generated captions/lyrics/metadata and a no-AbstractCore-dependency planner boundary is clear. |
 | `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
 | `proposed/0087_truthful_music_provider_runtime_availability.md` | Promote before clients rely on provider lists for selectable music backends; provider availability must mean runnable in the connected deployment. |
+| `proposed/0088_reference_floor_exemplar_review.md` | Promote before judging further local checkpoints against the reference floor; 7 of 7 matrix failures hinged on one entropy ratio and the exemplar has a near-silent tail. |
+| `proposed/0090_tempo_stability_gate.md` | Promote before trusting automated gates on rhythm: a listening-failed double-time opening passed every gate, and the candidate metric is fitted to one labeled example. |
 
 ## Deprecated work
 

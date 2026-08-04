@@ -85,6 +85,8 @@ Match the reported `status` to the fix:
 | --- | --- | --- |
 | `not-installed` | The optional runtime extra is missing. | `pip install "abstractmusic[acestep]"` |
 | `no-local-weights` | The runtime is installed, but no model is downloaded. | Download a model id from `metadata.models` |
+| `no-loadable-weights` | The only cached checkpoints use a repository layout the backend cannot load. | Download the Diffusers-layout variant named in `metadata.reason` |
+| `incompatible-model` | The configured `music_model_id` is known to be unloadable by any pipeline. | Configure a Diffusers-layout model id |
 | `not-configured` | No API key for a remote provider. | Set `ACEMUSIC_API_KEY` or `ELEVENLABS_API_KEY` |
 | `unauthorized` | The API rejected the key. | Check the key and its account entitlements |
 | `unreachable` | The endpoint did not answer within 5 seconds. | Check connectivity, base URL, and any proxy |
@@ -131,6 +133,27 @@ To force CPU directly:
 ```bash
 abstractmusic --backend acestep --device cpu t2m "ambient music" --out out.wav --duration 10
 ```
+
+## Output sounds like wind or noise instead of music
+
+The guided ACE-Step XL checkpoints (`acestep-v15-xl-sft-diffusers`,
+`acestep-v15-xl-base-diffusers`) can collapse into wind/whoosh-like sweeps when conditioned on
+long template captions. Short raw prompts work reliably. Check and fix:
+
+- Do not pass `--enhance-prompt` with XL sft/base checkpoints; template caption expansion is the
+  known trigger, and the planner warns (`caption_expansion_on_caption_sensitive_model`) when you
+  override it. (With the turbo checkpoint, `--enhance-prompt` is safe and can help.)
+- Long-form structure maps and `--auto-lyrics` avoid the known trigger on these checkpoints: the
+  registry marks them caption-sensitive, so the deterministic planner renders those captions
+  compactly (your prompt plus the section map, no template prose) and records
+  `compact_caption_for_caption_sensitive_model`. This removes the caption shape that failed at
+  30 seconds; it is not a separate quality guarantee. An injected LLM text planner owns its own
+  caption content — a long planner caption on a sensitive checkpoint is recorded as
+  `long_planner_caption_on_caption_sensitive_model` in provenance rather than rewritten.
+- Confirm what actually reached the model with `--print-plan`.
+- Generation metadata reports the screen verdict: `audio_stats.probably_noise_texture` is `true`
+  when the output matches the wind/whoosh signature. Retry with a different seed or a shorter
+  prompt.
 
 ## Long generations sound static or repetitive
 

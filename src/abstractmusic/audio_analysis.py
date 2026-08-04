@@ -15,7 +15,7 @@ import wave
 from array import array
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, BinaryIO, Union
+from typing import Any, BinaryIO, Dict, Union
 
 
 @dataclass(frozen=True)
@@ -336,6 +336,129 @@ def inspect_wav_stream(stream: BinaryIO) -> WavAudioStats:
     )
 
 
+@dataclass(frozen=True)
+class TempoTrajectoryStats:
+    """Windowed dominant beat-period trajectory of a generated track.
+
+    DIAGNOSTIC ONLY — not part of the canonical quality-gate set. A listening
+    review found a generation whose opening ran at exactly double tempo before
+    settling, which every automated gate passed. The one available bad example
+    is metrically close to a listening-confirmed *good* track whose intro is a
+    musical build (its opening/steady ratio is even higher), so no threshold
+    on this data separates the two reliably. Use the trajectory to *inspect*
+    suspicious output; do not treat the flag below as proof.
+    """
+
+    wav: WavAudioStats
+    #: Dominant onset periodicity per window, expressed as BPM. The tracker is
+    #: a naive autocorrelation argmax: read this as onset-RATE, not tempo. A
+    #: same-tempo arrangement change (straight intro into a backbeat or
+    #: half-time groove) halves the reading, and syncopated material can
+    #: octave-flip between windows, so a defect at a non-integer true ratio can
+    #: be invisible here. Files shorter than four windows (~16 s at the default
+    #: 8 s/4 s) return empty/neutral stats rather than a verdict.
+    window_bpm: tuple[float, ...]
+    window_s: float
+    hop_s: float
+    opening_bpm: float
+    steady_bpm: float
+    opening_ratio: float
+    #: True when the opening windows agree with each other within 8% — a flat
+    #: plateau, as opposed to the gliding descent of a musical intro build.
+    opening_is_plateau: bool
+    #: True when at least 70% of the post-opening windows agree with their
+    #: median within 20%. The one labeled failure sits exactly at that
+    #: boundary (7 of 10 windows), so treat the threshold as provisional.
+    steady_is_consistent: bool
+
+    @property
+    def has_probably_double_time_opening(self) -> bool:
+        """EXPERIMENTAL: sustained flat opening at a near-integer multiple of
+        the steady tempo. Fitted to a single listening-confirmed failure; the
+        plateau and integer-ratio conditions are what distinguish it from the
+        one confirmed-good intro build in the corpus. Expect both false
+        negatives and false positives on unseen material. Known channels:
+        a same-tempo backbeat/half-time arrangement change reads as an integer
+        onset-rate halving and can false-positive, and the integer-ratio
+        condition — calibrated so an unlabeled fast-opening file does not flag —
+        guarantees false negatives on genuine defects at non-integer ratios.
+        See backlog 0090 before promoting this to a gate."""
+
+        if not self.opening_is_plateau or not self.steady_is_consistent:
+            return False
+        if self.opening_ratio < 1.6:
+            return False
+        nearest = round(self.opening_ratio)
+        return nearest >= 2 and abs(self.opening_ratio - nearest) < 0.08
+
+
+def inspect_tempo_trajectory_file(path: Union[str, Path]) -> TempoTrajectoryStats:
+    """Inspect the windowed beat-period trajectory of a WAV file."""
+
+    expanded = Path(path).expanduser()
+    return inspect_tempo_trajectory_bytes(expanded.read_bytes())
+
+
+def inspect_tempo_trajectory_bytes(data: bytes, *, window_s: float = 8.0, hop_s: float = 4.0) -> TempoTrajectoryStats:
+    """Inspect WAV bytes for tempo stability over time (diagnostic)."""
+
+    np = _lazy_import_numpy()
+    wav_stats = inspect_wav_bytes(data)
+    samples = _wav_bytes_to_mono_float_array(data)
+
+    hop, nfft = 512, 2048
+    if len(samples) < nfft * 4:
+        return TempoTrajectoryStats(
+            wav=wav_stats, window_bpm=(), window_s=float(window_s), hop_s=float(hop_s),
+            opening_bpm=0.0, steady_bpm=0.0, opening_ratio=1.0,
+            opening_is_plateau=False, steady_is_consistent=False,
+        )
+    frames = np.lib.stride_tricks.sliding_window_view(np.asarray(samples, dtype=np.float64), nfft)[::hop]
+    frames = frames * np.hanning(nfft)
+    spectra = np.abs(np.fft.rfft(frames, axis=1))
+    flux = np.maximum(np.diff(spectra, axis=0), 0.0).sum(axis=1)
+    frame_rate = float(wav_stats.sample_rate_hz) / hop
+
+    wlen = int(window_s * frame_rate)
+    whop = int(hop_s * frame_rate)
+    bpms: list[float] = []
+    lo, hi = int(0.25 * frame_rate), int(1.2 * frame_rate)  # 50-240 BPM search
+    for start in range(0, len(flux) - wlen + 1, max(whop, 1)):
+        segment = flux[start:start + wlen]
+        segment = segment - segment.mean()
+        if float(np.max(np.abs(segment))) <= 1e-12 or hi >= len(segment):
+            continue
+        ac = np.correlate(segment, segment, mode="full")[len(segment) - 1:]
+        lag = lo + int(np.argmax(ac[lo:hi]))
+        bpms.append(60.0 * frame_rate / lag)
+
+    if len(bpms) < 4:
+        return TempoTrajectoryStats(
+            wav=wav_stats, window_bpm=tuple(bpms), window_s=float(window_s), hop_s=float(hop_s),
+            opening_bpm=float(bpms[0]) if bpms else 0.0,
+            steady_bpm=float(np.median(bpms)) if bpms else 0.0,
+            opening_ratio=1.0, opening_is_plateau=False, steady_is_consistent=False,
+        )
+
+    opening = bpms[:2]
+    steady = bpms[3:]
+    steady_bpm = float(np.median(steady))
+    opening_bpm = float(np.median(opening))
+    opening_is_plateau = abs(opening[0] - opening[1]) / max(opening_bpm, 1e-9) < 0.08
+    # Majority rather than unanimity: a track that settles into a groove can
+    # still wobble for a few windows (the confirmed bad example does), and that
+    # wobble must not exempt its double-time opening from the flag.
+    within = sum(1 for b in steady if abs(b - steady_bpm) / max(steady_bpm, 1e-9) < 0.20)
+    steady_is_consistent = within >= max(2, int(0.7 * len(steady)))
+    return TempoTrajectoryStats(
+        wav=wav_stats, window_bpm=tuple(float(b) for b in bpms),
+        window_s=float(window_s), hop_s=float(hop_s),
+        opening_bpm=opening_bpm, steady_bpm=steady_bpm,
+        opening_ratio=opening_bpm / max(steady_bpm, 1e-9),
+        opening_is_plateau=opening_is_plateau, steady_is_consistent=steady_is_consistent,
+    )
+
+
 def inspect_energy_continuity_file(path: Union[str, Path]) -> EnergyContinuityStats:
     """Inspect a WAV path for long low-energy gaps or pre-ending fades."""
 
@@ -419,6 +542,67 @@ def compare_harmonic_diversity(
         spectral_entropy_cv_ratio=float(candidate.spectral_entropy_cv) / max(float(reference.spectral_entropy_cv), 1e-9),
         chroma_rank_ratio=float(candidate.chroma_effective_rank) / max(float(reference.chroma_effective_rank), 1e-9),
     )
+
+
+def is_probably_noise_texture(
+    diversity: HarmonicDiversityStats,
+    modulation: SpectroTemporalModulationStats,
+) -> bool:
+    """Return True when audio matches the smooth noise-collapse failure signature.
+
+    This is a narrow tripwire, not a general noise classifier. It targets one
+    observed generative failure mode: guided ACE-Step checkpoints conditioned on
+    long template captions produce wind/whoosh-like sweeps that pass the basic
+    validity checks (non-silent, non-clipped, low ZCR) and can even fool the
+    pitch tracker into reporting melodic movement. The signature is the joint
+    absence of three things:
+
+    - percussive high-band transients (``highband_fast_modulation_ratio``:
+      musical validation artifacts measured >= 0.084, the listening-confirmed
+      wind failures <= 0.025);
+    - spectral-envelope motion (``spectral_centroid_cv``);
+    - harmonic variety over time (``chroma_effective_rank``).
+
+    Thresholds are fitted to a small labeled corpus, so treat a True result as a
+    strong warning to review, alongside the other gates, rather than as proof by
+    itself. Known limits: deliberately crafted noise (for example wind with
+    faint click transients, or fast-sweeping risers) can evade it, and very
+    smooth beatless pad textures can occasionally trip it.
+    """
+
+    wav = diversity.wav
+    if wav.is_probably_silent or wav.is_probably_noise_or_invalid:
+        return False  # already caught by the basic validity checks
+    return (
+        modulation.highband_fast_modulation_ratio < 0.05
+        and diversity.spectral_centroid_cv < 0.35
+        and diversity.chroma_effective_rank < 8.0
+    )
+
+
+def evaluate_music_quality_gates(
+    candidate_path: Union[str, Path],
+    reference_path: Union[str, Path],
+) -> Dict[str, bool]:
+    """Run the full generated-music quality-gate set used for model validation.
+
+    Returns a dict of gate name to pass/fail. A candidate is accepted when every
+    gate passes. This is the canonical gate set the packaged model registry's
+    validation notes refer to.
+    """
+
+    wav = inspect_wav_file(candidate_path)
+    diversity = inspect_harmonic_diversity_file(candidate_path)
+    modulation = inspect_spectrotemporal_modulation_file(candidate_path)
+    comparison = compare_harmonic_diversity_files(reference_path, candidate_path)
+    return {
+        "wav_valid": not wav.is_probably_noise_or_invalid and not wav.is_probably_silent,
+        "no_noise_texture": not is_probably_noise_texture(diversity, modulation),
+        "no_single_note_collapse": not comparison.candidate.is_probably_single_note_collapse,
+        "no_low_pitch_variety": not comparison.candidate.is_probably_low_pitch_variety,
+        "passes_reference_floor": comparison.passes_reference_floor,
+        "no_repetition_artifact": not modulation.is_probably_broadband_repetition_artifact,
+    }
 
 
 def inspect_spectrotemporal_modulation_file(path: Union[str, Path]) -> SpectroTemporalModulationStats:

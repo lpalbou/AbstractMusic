@@ -156,18 +156,25 @@ def test_acestep_registry_tracks_supported_route():
     assert spec.dependency_extra == "acestep"
     assert "Public `acestep` catalog entry" in spec.notes
 
-    turbo = MusicModelCapabilitiesRegistry().get("ACE-Step/Ace-Step1.5")
-    assert turbo.backend_kinds[0] == "acestep"
-    assert turbo.dependency_extra == "acestep"
-    assert turbo.status == "official-pipeline-compatible-unvalidated"
+    # The XL sft/base Diffusers-layout checkpoints are the loadable non-turbo route.
+    for kind in ("sft", "base"):
+        xl = MusicModelCapabilitiesRegistry().get(f"ACE-Step/acestep-v15-xl-{kind}-diffusers")
+        assert xl.backend_kinds[0] == "acestep"
+        assert xl.dependency_extra == "acestep"
+        assert xl.supports_guidance_scale is True
+        assert xl.recommended is False
+        assert xl.default_for_backend is False
 
-    base = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-base")
-    assert base.backend_kinds[0] == "acestep"
-    assert base.supports_guidance_scale is True
-
-    sft = MusicModelCapabilitiesRegistry().get("ACE-Step/acestep-v15-sft")
-    assert sft.backend_kinds[0] == "acestep"
-    assert sft.supports_guidance_scale is True
+    # Native-runtime-layout checkpoints stay in the catalog but are marked as
+    # unloadable by the `acestep` backend (no Diffusers model_index.json).
+    for model_id in (
+        "ACE-Step/Ace-Step1.5",
+        "ACE-Step/acestep-v15-base",
+        "ACE-Step/acestep-v15-sft",
+    ):
+        native = MusicModelCapabilitiesRegistry().get(model_id)
+        assert native.status == "incompatible-native-runtime-layout"
+        assert native.backend_kinds[0] == "acestep"
 
 
 @pytest.mark.unit

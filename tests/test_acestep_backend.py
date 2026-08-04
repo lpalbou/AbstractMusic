@@ -186,6 +186,46 @@ def test_acestep_defaults_follow_checkpoint_variant():
     assert _default_guidance_scale("ACE-Step/acestep-v15-base") == 7.0
     assert _default_num_inference_steps("ACE-Step/acestep-v15-sft") == 50
     assert _default_guidance_scale("ACE-Step/acestep-v15-sft") == 7.0
+    # The loadable Diffusers-layout XL checkpoints follow the model card:
+    # 50 steps and guidance 7.0 because they are not guidance-distilled.
+    assert _default_num_inference_steps("ACE-Step/acestep-v15-xl-sft-diffusers") == 50
+    assert _default_guidance_scale("ACE-Step/acestep-v15-xl-sft-diffusers") == 7.0
+    assert _default_num_inference_steps("ACE-Step/acestep-v15-xl-base-diffusers") == 50
+    assert _default_guidance_scale("ACE-Step/acestep-v15-xl-base-diffusers") == 7.0
+
+
+@pytest.mark.unit
+def test_acestep_rejects_native_layout_checkpoints_with_actionable_error():
+    """Explicitly selecting a native-layout id must fail fast and name the fix,
+    not surface a misleading network error from from_pretrained."""
+
+    from abstractmusic.backends.acestep import AceStepBackend, AceStepBackendConfig
+    from abstractmusic.errors import CapabilityNotSupportedError
+
+    backend = AceStepBackend(config=AceStepBackendConfig(model_id="ACE-Step/Ace-Step1.5"))
+    with pytest.raises(CapabilityNotSupportedError) as excinfo:
+        backend._load_pipe()
+    message = str(excinfo.value)
+    assert "native ACE-Step repository layout" in message
+    assert "acestep-v15-xl-turbo-diffusers" in message  # names a working alternative
+    assert "connect" not in message.lower()  # not a network-shaped error
+
+
+@pytest.mark.unit
+def test_generic_diffusers_backend_also_rejects_native_layout_checkpoints():
+    """The generic diffusers backend must not become an escape hatch that turns a
+    known-incompatible checkpoint back into a misleading 404 at load time."""
+
+    from abstractmusic.backends.diffusers_audio import DiffusersAudioBackend, DiffusersAudioBackendConfig
+    from abstractmusic.errors import CapabilityNotSupportedError
+
+    backend = DiffusersAudioBackend(
+        config=DiffusersAudioBackendConfig(model_id="ACE-Step/acestep-v15-base", pipeline_class="AceStepPipeline")
+    )
+    with pytest.raises(CapabilityNotSupportedError) as excinfo:
+        backend._load_pipe()
+    assert "repository layout" in str(excinfo.value)
+    assert "404" not in str(excinfo.value)
 
 
 @pytest.mark.unit

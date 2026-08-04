@@ -16,7 +16,7 @@ import wave
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
-from ..errors import OptionalDependencyMissingError
+from ..errors import CapabilityNotSupportedError, OptionalDependencyMissingError
 from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
@@ -140,6 +140,26 @@ def _encode_wav_bytes(audio_np: Any, *, sample_rate: int) -> bytes:
     return buf.getvalue()
 
 
+def _reject_known_incompatible_model(model_id: str) -> None:
+    """Fail fast on checkpoints the registry knows no Diffusers pipeline can load.
+
+    Without this, `from_pretrained` on a native-runtime-layout checkpoint dies
+    with a misleading 404/network error while its weights sit fully cached.
+    """
+
+    try:
+        from ..model_capabilities import MusicModelCapabilitiesRegistry
+
+        spec = MusicModelCapabilitiesRegistry().get(str(model_id))
+    except Exception:
+        return  # unknown ids stay the pipeline's problem
+    if str(spec.status).startswith("incompatible"):
+        raise CapabilityNotSupportedError(
+            f"{model_id} is published in a repository layout no Diffusers pipeline can load "
+            f"(registry status: {spec.status}). Choose a Diffusers-layout checkpoint instead."
+        )
+
+
 @dataclass(frozen=True)
 class DiffusersAudioBackendConfig:
     model_id: str
@@ -217,6 +237,7 @@ class DiffusersAudioBackend:
         if self._pipe is not None:
             return self._pipe
 
+        _reject_known_incompatible_model(str(self._config.model_id))
         torch = _lazy_import_torch()
         diffusers, DiffusionPipeline = _lazy_import_diffusers()
 

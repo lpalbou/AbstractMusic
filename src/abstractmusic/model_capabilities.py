@@ -30,6 +30,9 @@ class MusicModelSpec:
     supports_guidance_scale: bool
     supports_reference_audio: bool
     supports_video: bool
+    #: True when long template captions are known to degrade this checkpoint's
+    #: output; planners should keep enhancement compact unless explicitly asked.
+    caption_sensitive: bool
     max_duration_s: Optional[float]
     sample_rate_hz: Optional[int]
     official_8bit_available: bool
@@ -106,6 +109,7 @@ def _parse_model(raw: Dict[str, Any]) -> MusicModelSpec:
         supports_guidance_scale=bool(raw.get("supports_guidance_scale", False)),
         supports_reference_audio=bool(raw.get("supports_reference_audio", False)),
         supports_video=bool(raw.get("supports_video", False)),
+        caption_sensitive=bool(raw.get("caption_sensitive", False)),
         max_duration_s=_optional_float(raw.get("max_duration_s"), field_name=f"{model_id}.max_duration_s"),
         sample_rate_hz=_optional_int(raw.get("sample_rate_hz"), field_name=f"{model_id}.sample_rate_hz"),
         official_8bit_available=bool(raw.get("official_8bit_available", False)),

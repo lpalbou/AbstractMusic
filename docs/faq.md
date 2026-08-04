@@ -63,6 +63,17 @@ full picture, including providers you could enable and models you could download
 The packaged registry remains the complete catalog: `abstractmusic repl` then `/models` lists every
 known model regardless of what is installed.
 
+## When does AbstractMusic rewrite my prompt?
+
+Only when you opt in. Your prompt passes through unchanged unless you request enhancement
+(`--enhance-prompt`) or enable a feature that needs a caption: long-form structure maps
+(durations of 45 seconds or more, on by default) or `--auto-lyrics`. For checkpoints the
+registry marks `caption_sensitive` (the ACE-Step XL sft/base variants), feature captions stay
+compact — your prompt plus the section map, no template prose — because long template captions
+degraded those checkpoints in validation. The planner records what it did in provenance
+warnings, printed to stderr and stored in generation metadata; `--print-plan` shows the exact
+text sent to the model.
+
 ## Do we use 8-bit models?
 
 When official 8-bit model artifacts exist, they should be preferred. If no official 8-bit artifact

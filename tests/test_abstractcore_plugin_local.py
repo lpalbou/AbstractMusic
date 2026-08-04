@@ -587,10 +587,10 @@ def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_
         ),
     )
     for repo_id in (
-        "ACE-Step/Ace-Step1.5",
-        "ACE-Step/acestep-v15-base",
-        "ACE-Step/acestep-v15-sft",
+        "ACE-Step/Ace-Step1.5",  # cached but incompatible layout: must stay hidden
         "ACE-Step/acestep-v15-xl-turbo-diffusers",
+        "ACE-Step/acestep-v15-xl-sft-diffusers",
+        "ACE-Step/acestep-v15-xl-base-diffusers",
         "stabilityai/stable-audio-open-small",
         "stabilityai/stable-audio-3-small-music",
     ):
@@ -624,10 +624,14 @@ def test_capability_exposes_truthful_backend_and_model_discovery_without_vendor_
 
     models = cap.list_models(task="text_to_music", provider="acestep")
     model_ids = {item["model_id"] for item in models}
-    assert "ACE-Step/Ace-Step1.5" in model_ids
-    assert "ACE-Step/acestep-v15-base" in model_ids
-    assert "ACE-Step/acestep-v15-sft" in model_ids
     assert "ACE-Step/acestep-v15-xl-turbo-diffusers" in model_ids
+    assert "ACE-Step/acestep-v15-xl-sft-diffusers" in model_ids
+    assert "ACE-Step/acestep-v15-xl-base-diffusers" in model_ids
+    # Native-runtime-layout checkpoints are cached on disk but cannot load
+    # through AceStepPipeline; discovery must not offer them as runnable.
+    assert "ACE-Step/Ace-Step1.5" not in model_ids
+    assert "ACE-Step/acestep-v15-base" not in model_ids
+    assert "ACE-Step/acestep-v15-sft" not in model_ids
     diffusers_record = next(item for item in models if item["model_id"] == "ACE-Step/acestep-v15-xl-turbo-diffusers")
     assert diffusers_record["provider_id"] == "acestep"
     assert diffusers_record["backend_id"] == "abstractmusic:acestep"

@@ -71,12 +71,72 @@ def test_local_provider_is_available_once_weights_are_on_disk(all_runtimes_insta
 
 @pytest.mark.unit
 def test_only_present_models_are_listed(all_runtimes_installed, cache_model):
-    cache_model("ACE-Step/Ace-Step1.5")
+    cache_model("ACE-Step/acestep-v15-xl-sft-diffusers")
     records = _capability().list_models(task="text_to_music")
 
-    assert [item["model_id"] for item in records] == ["ACE-Step/Ace-Step1.5"]
+    assert [item["model_id"] for item in records] == ["ACE-Step/acestep-v15-xl-sft-diffusers"]
     assert records[0]["metadata"]["cached"] is True
     assert records[0]["metadata"]["installed"] is True
+
+
+@pytest.mark.unit
+def test_incompatible_layout_models_are_never_offered_even_when_cached(all_runtimes_installed, cache_model):
+    """A cached checkpoint the backend cannot load must not be reported as runnable.
+
+    ACE-Step publishes official checkpoints in a native transformers layout that
+    `AceStepPipeline.from_pretrained` cannot load; having its weights on disk
+    does not make it usable.
+    """
+
+    cache_model("ACE-Step/Ace-Step1.5")
+    capability = _capability()
+    assert capability.available_providers(task="text_to_music") == []
+    assert capability.list_models(task="text_to_music") == []
+
+    # The moment a loadable-layout checkpoint is present, the provider appears —
+    # and still without the incompatible one.
+    cache_model("ACE-Step/acestep-v15-xl-sft-diffusers")
+    records = capability.list_models(task="text_to_music")
+    assert [item["model_id"] for item in records] == ["ACE-Step/acestep-v15-xl-sft-diffusers"]
+
+
+@pytest.mark.unit
+def test_cached_incompatible_checkpoint_is_explained_not_denied(all_runtimes_installed, cache_model):
+    """With only an incompatible checkpoint cached, the provider must say why it
+    is unusable — not claim no weights exist — and keep the catalog visible."""
+
+    cache_model("ACE-Step/Ace-Step1.5")
+    details = {item["provider_id"]: item for item in _capability().provider_details(task="text_to_music")}
+    acestep = details["acestep"]
+
+    assert acestep["usable"] is False
+    assert acestep["status"] == "no-loadable-weights"
+    assert "ACE-Step/Ace-Step1.5" in acestep["metadata"]["reason"]
+    assert "ACE-Step/Ace-Step1.5" in acestep["metadata"]["cached_models"]
+    # Catalog knowledge survives: both the incompatible and the loadable ids are listed.
+    assert "ACE-Step/Ace-Step1.5" in acestep["metadata"]["models"]
+    assert "ACE-Step/acestep-v15-xl-sft-diffusers" in acestep["metadata"]["models"]
+
+
+@pytest.mark.unit
+def test_configured_model_id_cannot_resurrect_an_incompatible_checkpoint(
+    monkeypatch, all_runtimes_installed, cache_model
+):
+    """music_model_id must not route an unloadable checkpoint through the
+    generic diffusers provider: no Diffusers pipeline can load it either."""
+
+    cache_model("ACE-Step/Ace-Step1.5")
+    monkeypatch.setenv("ABSTRACTMUSIC_MODEL_ID", "ACE-Step/Ace-Step1.5")
+    capability = _capability("abstractmusic:diffusers")
+
+    assert capability.available_providers(task="text_to_music") == []
+    assert capability.list_models(task="text_to_music") == []
+
+    details = {item["provider_id"]: item for item in capability.provider_details(task="text_to_music")}
+    diffusers = details["diffusers"]
+    assert diffusers["usable"] is False
+    assert diffusers["status"] == "incompatible-model"
+    assert "layout" in diffusers["metadata"]["reason"]
 
 
 @pytest.mark.unit
@@ -272,11 +332,11 @@ def test_provider_details_explains_every_provider_that_is_missing(monkeypatch, c
 def test_provider_details_marks_the_usable_ones_and_names_their_cached_models(
     all_runtimes_installed, cache_model
 ):
-    cache_model("ACE-Step/Ace-Step1.5")
+    cache_model("ACE-Step/acestep-v15-xl-sft-diffusers")
     details = {item["provider_id"]: item for item in _capability().provider_details(task="text_to_music")}
 
     assert details["acestep"]["usable"] is True
-    assert details["acestep"]["metadata"]["cached_models"] == ["ACE-Step/Ace-Step1.5"]
+    assert details["acestep"]["metadata"]["cached_models"] == ["ACE-Step/acestep-v15-xl-sft-diffusers"]
     assert len(details["acestep"]["metadata"]["models"]) > 1, "uncached models stay discoverable"
     assert details["stable-audio-3"]["usable"] is False
     # Usable providers sort first.

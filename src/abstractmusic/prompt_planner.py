@@ -334,8 +334,13 @@ def create_prompt_plan(
     enhance_prompt: bool = False,
     structure_prompt: bool = True,
     auto_lyrics: bool = False,
+    model_id: Optional[str] = None,
 ) -> MusicPromptPlan:
-    """Create richer text conditioning from a short user music query."""
+    """Create richer text conditioning from a short user music query.
+
+    Pass ``model_id`` when the target checkpoint is known: caption-sensitive
+    checkpoints get compact feature captions instead of template expansions.
+    """
 
     request = MusicPlanningRequest(
         prompt=str(prompt or ""),
@@ -349,6 +354,7 @@ def create_prompt_plan(
         enhance_prompt=enhance_prompt,
         structure_prompt=structure_prompt,
         auto_lyrics=auto_lyrics,
+        model_id=model_id,
     )
     return DeterministicMusicPlanner().create_plan(request)
 
@@ -431,6 +437,18 @@ def validate_music_prompt_plan(request: MusicPlanningRequest, plan: MusicPromptP
     generated_fields = tuple(str(v) for v in (plan.generated_fields or ()) if str(v).strip())
     positive_styles = _dedupe_tuple(request.positive_styles or plan.positive_styles or ())
     negative_styles = _dedupe_tuple(request.negative_styles or plan.negative_styles or ())
+
+    # Injected (non-deterministic) planners own their caption content, but a
+    # long expansion aimed at a caption-sensitive checkpoint is the exact shape
+    # that degraded guided XL output, so record it in provenance rather than
+    # letting it pass silently. The plan is not rewritten: hosts that opt into
+    # an LLM planner keep authority over its output.
+    if (
+        str(plan.planner_backend or "") not in {"", DeterministicMusicPlanner.planner_backend, "deterministic-fallback"}
+        and _model_is_caption_sensitive(request.model_id)
+        and len(prompt) > max(2 * len(_clean_space(request.prompt)), 200)
+    ):
+        warnings.append("long_planner_caption_on_caption_sensitive_model")
     return replace(
         plan,
         prompt=prompt,
@@ -558,9 +576,35 @@ def _create_deterministic_prompt_plan(request: MusicPlanningRequest) -> MusicPro
         effective_lyrics = None
 
     use_structure = bool(request.structure_prompt) and _needs_long_form_structure(request.duration_s)
-    should_enhance = bool(request.enhance_prompt) or wants_auto_lyrics or use_structure or _profile_prefers_enhancement(profile)
+    # Enhancement is strictly opt-in (explicit flag, or a feature that needs a
+    # caption: structure maps, auto-lyrics). Style profiles must never force it:
+    # controlled A/B generations showed long template captions reliably degrade
+    # guided (non-distilled) ACE-Step XL output — sometimes into unpitched
+    # noise-sweep collapse — while the same seeds with the raw prompt (with or
+    # without the profile's bpm/keyscale/timesignature hints) generate music.
+    # The guidance-distilled turbo checkpoint tolerates, and can even benefit
+    # from, the expanded captions; users get them back with --enhance-prompt.
+    should_enhance = bool(request.enhance_prompt) or wants_auto_lyrics or use_structure
+    # For checkpoints the registry marks caption-sensitive, features that merely
+    # need a caption (structure maps, auto-lyrics) render it compactly — the raw
+    # prompt plus the section map, none of the template prose. An explicit
+    # enhance request still wins, with a provenance warning.
+    caption_sensitive = _model_is_caption_sensitive(request.model_id)
+    compact_caption = caption_sensitive and not bool(request.enhance_prompt)
+    if should_enhance and caption_sensitive:
+        warnings.append(
+            "caption_expansion_on_caption_sensitive_model"
+            if request.enhance_prompt
+            else "compact_caption_for_caption_sensitive_model"
+        )
     effective_prompt = (
-        enhance_caption(raw_prompt, profile=profile, duration_s=request.duration_s, include_structure=use_structure)
+        enhance_caption(
+            raw_prompt,
+            profile=profile,
+            duration_s=request.duration_s,
+            include_structure=use_structure,
+            compact=compact_caption,
+        )
         if should_enhance
         else raw_prompt
     )
@@ -585,7 +629,7 @@ def _create_deterministic_prompt_plan(request: MusicPlanningRequest) -> MusicPro
         bpm=inferred_bpm,
         keyscale=inferred_keyscale,
         timesignature=inferred_timesignature,
-        enhanced_prompt=should_enhance,
+        enhanced_prompt=bool(should_enhance and effective_prompt != raw_prompt),
         structured_prompt=use_structure,
         generated_lyrics=generated_lyrics,
         instrumental=wants_instrumental,
@@ -661,17 +705,42 @@ def _coerce_music_prompt_plan(value: Any) -> MusicPromptPlan:
     )
 
 
+def _model_is_caption_sensitive(model_id: Optional[str]) -> bool:
+    """Look up whether the registry marks this checkpoint as caption-sensitive."""
+
+    text = str(model_id or "").strip()
+    if not text:
+        return False
+    try:
+        from .model_capabilities import MusicModelCapabilitiesRegistry
+
+        return bool(MusicModelCapabilitiesRegistry().get(text).caption_sensitive)
+    except Exception:
+        return False  # unknown ids keep the default caption policy
+
+
 def enhance_caption(
     prompt: str,
     *,
     profile: Optional[_StyleProfile] = None,
     duration_s: Optional[float] = None,
     include_structure: bool = False,
+    compact: bool = False,
 ) -> str:
-    """Expand a short caption into a detailed music-generation caption."""
+    """Expand a short caption into a detailed music-generation caption.
+
+    ``compact=True`` keeps only the user's prompt plus the long-form section map
+    (when requested), dropping all template prose. This is the rendering used
+    for caption-sensitive checkpoints, whose output degrades under long dense
+    instruction captions.
+    """
 
     clean = _clean_space(prompt) or "music"
     prof = profile or _select_profile(clean)
+    if compact:
+        if include_structure:
+            return f"{clean}. {_long_form_structure_text(prof, duration_s)}"
+        return clean
     duration_text = ""
     if duration_s is not None and float(duration_s) > 0:
         duration_text = f" Target duration is about {int(round(float(duration_s)))} seconds."
@@ -778,10 +847,6 @@ def _profile_by_name(name: str) -> _StyleProfile:
         if profile.name == name:
             return profile
     return _DEFAULT_PROFILE
-
-
-def _profile_prefers_enhancement(profile: _StyleProfile) -> bool:
-    return profile.name in {"arcade_shooter", "arcade_platformer", "arcade_action"}
 
 
 def _continuity_constraint(profile: _StyleProfile, duration_s: Optional[float]) -> str:

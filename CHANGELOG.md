@@ -6,6 +6,69 @@ All notable changes to AbstractMusic will be documented in this file.
 
 No unreleased changes.
 
+## [0.1.15] - 2026-08-04
+
+### Fixed
+
+- The deterministic prompt planner no longer forces template caption expansion for
+  arcade/game-music style prompts. Expansion now happens only when requested
+  (`--enhance-prompt`) or required by an opted-in feature (long-form structure maps,
+  auto-lyrics). Controlled A/B generations showed the long template captions reliably
+  degrade the guided ACE-Step XL checkpoints — sometimes into unpitched noise-sweep
+  output — while the same seeds with the raw prompt generate music; the profile's
+  bpm/keyscale/timesignature hints were tested separately and are harmless. The
+  guidance-distilled turbo checkpoint tolerates the expanded captions and can benefit
+  from them, so pass `--enhance-prompt` explicitly to keep the previous behavior there.
+- Caption rendering is now checkpoint-aware. Registry entries can declare
+  `caption_sensitive`; for those checkpoints the planner renders feature-driven captions
+  (long-form structure maps, auto-lyrics) compactly — the user's prompt plus the section
+  map, none of the template prose — and records a
+  `compact_caption_for_caption_sensitive_model` provenance warning. An explicit
+  `--enhance-prompt` still applies the full expansion, with a warning. The two XL
+  Diffusers checkpoints are marked sensitive; at 60 s the full-bundle, compact, and raw
+  configurations all passed the automated quality-gate set on XL SFT, but the full-bundle
+  control later failed a listening review with a double-time opening the gates cannot
+  measure — reinforcing the compact default. Injected LLM planners
+  keep authority over their captions; a long planner caption aimed at a caption-sensitive
+  checkpoint is recorded as `long_planner_caption_on_caption_sensitive_model` in plan
+  provenance. Caption-policy warnings print to stderr even without `--print-plan`.
+- Corrected the catalog status of `ACE-Step/Ace-Step1.5`, `ACE-Step/acestep-v15-base`, and
+  `ACE-Step/acestep-v15-sft`. These official checkpoints are published in the native ACE-Step
+  transformers repository layout (no Diffusers `model_index.json`) and cannot be loaded by the
+  `acestep` backend's `AceStepPipeline`; they were previously labelled pipeline-compatible.
+  They remain in the catalog as `incompatible-native-runtime-layout` and are no longer offered
+  as runnable by discovery, even when their weights are cached locally — including when one of
+  them is set as `music_model_id` for the generic diffusers route.
+- Selecting an incompatible checkpoint explicitly now fails fast with an error naming the
+  loadable Diffusers-layout alternatives, instead of surfacing a misleading network error from
+  `from_pretrained`. When the only cached ACE-Step weights are an incompatible checkpoint,
+  `provider_details(...)` reports `no-loadable-weights` and names it, rather than claiming no
+  weights exist.
+
+### Added
+
+- `abstractmusic.audio_analysis.is_probably_noise_texture(...)`: a warning-grade screen for
+  the wind/whoosh collapse signature — non-silent audio with no percussive transients, a
+  static spectral envelope, and little harmonic variety — which the existing validity and
+  repetition checks do not catch. It flagged every listening-confirmed noise-sweep artifact
+  in the validation corpus while sparing all musical files; thresholds are fitted to that
+  corpus, so treat a flag as a signal to review rather than proof. The `acestep` backend now
+  reports it as `audio_stats.probably_noise_texture` in generation metadata.
+- `abstractmusic.audio_analysis.evaluate_music_quality_gates(candidate, reference)`: the
+  canonical validation gate set (validity, noise texture, collapse, pitch variety, reference
+  floor, repetition) that the packaged model registry's validation notes refer to. The gate set
+  does not measure tempo stability: a listening review found a 60-second generation with a
+  double-time opening that passed every gate.
+- `abstractmusic.audio_analysis.inspect_tempo_trajectory_file/bytes(...)`: a diagnostic
+  windowed beat-period trajectory (opening vs steady tempo, plateau detection) for inspecting
+  rhythm defects. Its `has_probably_double_time_opening` flag is experimental — fitted to a
+  single listening-confirmed failure — and is deliberately not part of the canonical gate set.
+- Registered the official Diffusers-layout XL checkpoints `ACE-Step/acestep-v15-xl-sft-diffusers`
+  and `ACE-Step/acestep-v15-xl-base-diffusers` under the `acestep` backend. They are not
+  guidance-distilled: AbstractMusic applies the model card's recommended
+  `num_inference_steps=50` and `guidance_scale=7.0` by default for non-turbo variants. The
+  8-step XL Turbo checkpoint remains the default and recommended model.
+
 ## [0.1.14] - 2026-08-03
 
 ### Changed

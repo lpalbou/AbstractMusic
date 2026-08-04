@@ -659,7 +659,9 @@ def _resolve_generation_text(
         structure_prompt=bool(getattr(args, "structure_prompt", True)),
         auto_lyrics=bool(getattr(args, "auto_lyrics", False)),
         backend=backend_kind,
-        model_id=getattr(args, "model_id", None),
+        # Resolve the backend's default model when none was given, so
+        # checkpoint-aware planning (caption sensitivity) sees the real target.
+        model_id=getattr(args, "model_id", None) or _default_model_id_for_backend(backend_kind),
     )
     plan = create_music_prompt_plan(
         plan_request,
@@ -686,6 +688,14 @@ def _resolve_generation_text(
         print(f"  planner_backend: {plan.planner_backend}", file=sys.stderr)
         print(f"  generated_fields: {', '.join(plan.generated_fields) if plan.generated_fields else 'none'}", file=sys.stderr)
         print(f"  warnings: {', '.join(compiled.metadata.get('planner_warnings') or ()) or 'none'}", file=sys.stderr)
+    else:
+        # Caption-policy warnings must be visible without --print-plan: they tell
+        # the user their caption was compacted or that they overrode a known risk.
+        caption_warnings = [
+            w for w in (compiled.metadata.get("planner_warnings") or ()) if "caption" in str(w)
+        ]
+        if caption_warnings:
+            print(f"NOTE planner: {', '.join(caption_warnings)}", file=sys.stderr)
 
     return compiled.prompt, compiled.lyrics, dict(compiled.metadata), compiled.composition_plan
 

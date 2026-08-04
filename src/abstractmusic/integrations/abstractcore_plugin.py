@@ -55,7 +55,11 @@ _BACKEND_ID_TO_KIND = {
 
 _BACKEND_KIND_TO_ID = {kind: backend_id for backend_id, kind in _BACKEND_ID_TO_KIND.items()}
 
-_NON_RUNNABLE_MODEL_STATUS_PREFIXES = ("planned", "research")
+# "incompatible" marks catalog entries whose repository layout the registered
+# backend cannot load (e.g. native-runtime ACE-Step checkpoints without a
+# Diffusers model_index.json). They stay in the registry as provider knowledge
+# but must never be offered as runnable.
+_NON_RUNNABLE_MODEL_STATUS_PREFIXES = ("planned", "research", "incompatible")
 
 _REMOTE_BACKEND_KINDS = frozenset({"acemusic", "elevenlabs"})
 
@@ -963,11 +967,17 @@ class _AbstractMusicCapabilityBase:
         """
 
         specs_by_kind: Dict[str, List[MusicModelSpec]] = {}
+        unrunnable_by_kind: Dict[str, List[MusicModelSpec]] = {}
         for spec in self._registry_models(task=task):
             backend_kind = _registered_backend_kind_for_spec(spec)
-            if not backend_kind or not _model_status_is_runnable(spec.status):
+            if not backend_kind:
                 continue
-            specs_by_kind.setdefault(backend_kind, []).append(spec)
+            if _model_status_is_runnable(spec.status):
+                specs_by_kind.setdefault(backend_kind, []).append(spec)
+            else:
+                # Kept for provider_details: catalog knowledge with a reason,
+                # never offered as runnable.
+                unrunnable_by_kind.setdefault(backend_kind, []).append(spec)
 
         endpoints: Dict[str, RemoteEndpoint] = {}
         for kind in specs_by_kind:
@@ -983,7 +993,9 @@ class _AbstractMusicCapabilityBase:
             if kind in _REMOTE_BACKEND_KINDS:
                 states[kind] = self._remote_provider_state(kind, specs, probes.get(kind))
             else:
-                states[kind] = self._local_provider_state(kind, specs)
+                states[kind] = self._local_provider_state(
+                    kind, specs, unrunnable=unrunnable_by_kind.get(kind, [])
+                )
 
         if "diffusers" not in states:
             # A user-configured checkpoint has no registry entry; a registry-derived
@@ -1019,7 +1031,13 @@ class _AbstractMusicCapabilityBase:
             latency_ms=getattr(probe, "latency_ms", None),
         )
 
-    def _local_provider_state(self, backend_kind: str, specs: List[MusicModelSpec]) -> _ProviderState:
+    def _local_provider_state(
+        self,
+        backend_kind: str,
+        specs: List[MusicModelSpec],
+        *,
+        unrunnable: Optional[List[MusicModelSpec]] = None,
+    ) -> _ProviderState:
         installed_by_extra: Dict[str, Optional[bool]] = {}
         runnable: List[MusicModelSpec] = []
         for spec in specs:
@@ -1031,13 +1049,27 @@ class _AbstractMusicCapabilityBase:
 
         installed_values = [value for value in installed_by_extra.values() if value is not None]
         installed = any(installed_values) if installed_values else None
-        present = cached_model_ids(spec.id for spec in runnable) if runnable else frozenset()
+        # Presence is checked for the whole catalog — including checkpoints the
+        # backend cannot load — so the "why is nothing usable" answer can point
+        # at an incompatible cached checkpoint instead of denying its existence.
+        known = tuple([*specs, *(unrunnable or [])])
+        present = cached_model_ids(spec.id for spec in known) if known else frozenset()
         models = tuple(spec for spec in runnable if spec.id in present)
 
         if installed is not True:
             status, detail = "not-installed", "runtime dependencies are not installed"
         elif not models:
-            status, detail = "no-local-weights", "no model weights found in the Hugging Face cache"
+            cached_unrunnable = sorted(
+                spec.id for spec in (unrunnable or []) if spec.id in present
+            )
+            if cached_unrunnable:
+                status = "no-loadable-weights"
+                detail = (
+                    "the only cached checkpoints use a repository layout this backend cannot "
+                    f"load ({', '.join(cached_unrunnable)}); download a Diffusers-layout variant"
+                )
+            else:
+                status, detail = "no-local-weights", "no model weights found in the Hugging Face cache"
         else:
             status, detail = "available", ""
 
@@ -1052,7 +1084,7 @@ class _AbstractMusicCapabilityBase:
             status=status,
             detail=detail,
             models=models,
-            known_models=tuple(specs),
+            known_models=known,
             cached_model_ids=frozenset(present),
         )
 
@@ -1062,6 +1094,26 @@ class _AbstractMusicCapabilityBase:
         model_id = _owner_cfg(self._owner, "music_model_id") or _env("ABSTRACTMUSIC_MODEL_ID")
         if not model_id:
             return None
+        # A configured id the registry knows to be non-runnable (e.g. a
+        # native-runtime-layout checkpoint) must not resurface as runnable
+        # through the generic diffusers route: no Diffusers pipeline can load it.
+        known = self._registry_spec(str(model_id))
+        if known is not None and not _model_status_is_runnable(known.status):
+            return _ProviderState(
+                backend_kind="diffusers",
+                provider_id=_provider_id_for_backend_kind("diffusers"),
+                backend_id=str(_BACKEND_KIND_TO_ID["diffusers"]),
+                remote=False,
+                installed=_runtime_installed("diffusers"),
+                configured=True,
+                usable=False,
+                status="incompatible-model",
+                detail=(
+                    f"{model_id} is published in a repository layout no Diffusers pipeline can "
+                    f"load (registry status: {known.status})"
+                ),
+                configured_model_id=str(model_id),
+            )
         installed = _runtime_installed("diffusers")
         cached = bool(installed) and is_model_cached(str(model_id))
         if installed is not True:
@@ -1087,6 +1139,12 @@ class _AbstractMusicCapabilityBase:
 
     def _registry_models(self, *, task: Optional[str] = None) -> List[MusicModelSpec]:
         return list(MusicModelCapabilitiesRegistry().list_models(task=_normalize_task(task)))
+
+    def _registry_spec(self, model_id: str) -> Optional[MusicModelSpec]:
+        try:
+            return MusicModelCapabilitiesRegistry().get(model_id)
+        except Exception:
+            return None
 
     def available_providers(
         self,

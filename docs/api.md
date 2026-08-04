@@ -100,9 +100,39 @@ cheap probes in `abstractmusic.availability`:
 `available_providers(...)` answers "what can I run"; `provider_details(...)` answers "what else is
 there, and what is missing". It returns every known provider with a `usable` boolean, a `status`
 (`available`, `unauthorized`, `unavailable`, `unreachable`, `not-configured`, `not-installed`,
-`no-local-weights`), `metadata.reason`, the provider's full model catalog in `metadata.models`, and
+`no-local-weights`, `no-loadable-weights` when the only cached checkpoints use a repository layout
+the backend cannot load, or `incompatible-model` when a configured model id is known to be
+unloadable), `metadata.reason`, the provider's full model catalog in `metadata.models`, and
 the subset already downloaded in `metadata.cached_models`. Use it whenever `available_providers(...)`
 comes back short, and to show users what they could install or download.
+
+## Audio quality analysis
+
+`abstractmusic.audio_analysis` provides dependency-light quality inspection for generated audio.
+The canonical validation gate set is:
+
+```python
+from abstractmusic.audio_analysis import evaluate_music_quality_gates
+
+gates = evaluate_music_quality_gates("candidate.wav", "reference.wav")
+accepted = all(gates.values())
+```
+
+It returns per-gate booleans for validity, noise texture, single-note collapse, pitch variety,
+the reference floor, and repetition artifacts. The gate set does not measure tempo stability —
+rhythm defects such as a double-time opening can pass every gate — so pair automated gates with
+listening review for release decisions. `inspect_tempo_trajectory_file/bytes(...)` provides a
+diagnostic windowed beat-period trajectory for inspecting suspected rhythm problems; read its
+values as dominant onset rate rather than exact tempo. `is_probably_noise_texture(...)` screens
+for wind/whoosh-like generative failures that pass basic validity checks; treat it as a warning
+to review rather than proof on its own. The `acestep` backend reports the same screen on every
+generation as `metadata["audio_stats"]["probably_noise_texture"]`.
+
+Prompt captions are checkpoint-sensitive: template caption expansion (`--enhance-prompt`) can
+improve the guidance-distilled turbo checkpoint but degraded the guided XL checkpoints in
+30-second validation runs, so expansion is strictly opt-in. Registry entries marked
+`caption_sensitive` get compact feature captions (the prompt plus the long-form section map)
+from the deterministic planner instead of template prose.
 
 When running under AbstractCore, the capability object also exposes an optional residency surface
 for local backends:

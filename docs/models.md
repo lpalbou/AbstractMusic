@@ -60,13 +60,24 @@ provider-specific model names when exposed by the service.
 
 ## ACE-Step Scope
 
-The public ACE-Step contract is one backend, `acestep`, plus a model id. The reviewed discovery
-catalog currently surfaces these official ACE-Step checkpoints:
+The public ACE-Step contract is one backend, `acestep`, plus a model id. The backend loads
+checkpoints through Diffusers `AceStepPipeline`, which requires the Diffusers repository layout.
+The reviewed catalog offers these loadable official checkpoints:
 
-- `ACE-Step/Ace-Step1.5`
-- `ACE-Step/acestep-v15-base`
-- `ACE-Step/acestep-v15-sft`
-- `ACE-Step/acestep-v15-xl-turbo-diffusers`
+- `ACE-Step/acestep-v15-xl-turbo-diffusers` — guidance-distilled, 8 steps, the validated default.
+  Tolerates template caption expansion (`--enhance-prompt`) and can benefit from it.
+- `ACE-Step/acestep-v15-xl-sft-diffusers` — supervised fine-tuned XL, not guidance-distilled;
+  AbstractMusic applies the model card's 50 steps and guidance 7.0 by default. Smoke-validated on
+  MPS bfloat16 with raw short prompts (seed-sensitive); long template captions degrade it, so keep
+  `--enhance-prompt` off with this checkpoint.
+- `ACE-Step/acestep-v15-xl-base-diffusers` — XL base variant, same 50-step defaults and the same
+  raw-short-prompt guidance.
+
+Three further official checkpoints — `ACE-Step/Ace-Step1.5`, `ACE-Step/acestep-v15-base`, and
+`ACE-Step/acestep-v15-sft` — are published in the native ACE-Step repository layout, which
+`AceStepPipeline` cannot load. They stay in the catalog as provider knowledge with status
+`incompatible-native-runtime-layout` and are never offered as runnable; selecting one explicitly
+fails with an error that names the loadable alternatives.
 
 The validated default remains `ACE-Step/acestep-v15-xl-turbo-diffusers`.
 

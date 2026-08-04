@@ -156,7 +156,10 @@ class MusicManager:
                 structure_prompt=structure_prompt,
                 auto_lyrics=auto_lyrics,
                 backend=str(getattr(backend, "backend_id", "")),
-                model_id=getattr(caps, "model_id", None) if caps is not None else self.model_id,
+                # Backend capabilities name the concrete checkpoint when they can;
+                # the manager's own model_id backstops backends that report none,
+                # so checkpoint-aware planning (caption sensitivity) still fires.
+                model_id=(getattr(caps, "model_id", None) or self.model_id) if caps is not None else self.model_id,
             )
             plan = self.plan_text(plan_request, text_planner=text_planner, mode=text_planner_mode)
             native_lyrics_supported = not (caps is not None and caps.supports_lyrics is False)

@@ -323,3 +323,236 @@ def test_spectrotemporal_modulation_flags_static_spectral_loop():
     assert stats.highband_peak_iqr_hz <= 750.0
     assert stats.is_probably_static_spectral_loop
     assert stats.is_probably_broadband_repetition_artifact
+
+
+def _wind_noise_sweep(np, seconds=12.0, rate=48000, seed=11):
+    """Wind/whoosh texture: a dense cluster of slowly drifting inharmonic
+    partials with slow amplitude swells and no fast transients — the smooth
+    generative failure mode, not raw white noise (which the basic ZCR check
+    already catches). The airy high layer uses fixed, widely spaced partials so
+    that no inter-partial beating produces spurious fast modulation."""
+
+    rng = np.random.default_rng(seed)
+    n = int(seconds * rate)
+    t = np.arange(n) / rate
+    out = np.zeros(n)
+    for _ in range(60):
+        f0 = rng.uniform(150, 2500)
+        drift = 0.008 * f0 * np.sin(2 * np.pi * rng.uniform(0.05, 0.3) * t + rng.uniform(0, 6.28))
+        swell = 0.5 + 0.5 * np.sin(2 * np.pi * rng.uniform(0.08, 0.5) * t + rng.uniform(0, 6.28))
+        phase = 2 * np.pi * np.cumsum(f0 + drift) / rate
+        out += rng.uniform(0.3, 1.0) * swell * np.sin(phase)
+    for k in range(8):  # deterministic airy high layer, slow swells only
+        f0 = 4200.0 + 620.0 * k
+        swell = 0.5 + 0.5 * np.sin(2 * np.pi * (0.1 + 0.04 * k) * t + 0.7 * k)
+        out += 0.05 * swell * np.sin(2 * np.pi * f0 * t)
+    return 0.6 * out / np.max(np.abs(out))
+
+
+def _drumless_chord_progression(np, seconds=12.0, rate=48000):
+    """Legitimate percussion-free music: moving triads with evolving brightness."""
+
+    t = np.arange(int(seconds * rate)) / rate
+    chords = [(220.0, 277.18, 329.63), (246.94, 311.13, 369.99), (261.63, 329.63, 392.0), (196.0, 246.94, 293.66)]
+    out = np.zeros_like(t)
+    seg = len(t) // len(chords)
+    for i, chord in enumerate(chords):
+        idx = slice(i * seg, (i + 1) * seg)
+        seg_t = t[idx]
+        brightness = 1.0 + 0.8 * np.sin(2.0 * np.pi * 0.25 * seg_t + i)
+        for f in chord:
+            for harmonic in (1, 2, 3, 4):
+                out[idx] += (0.5 / harmonic) * (brightness / (1 + 0.3 * harmonic)) * np.sin(
+                    2.0 * np.pi * f * harmonic * seg_t
+                )
+    return 0.5 * out / np.max(np.abs(out))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("seconds", [12.0, 24.0])
+@pytest.mark.parametrize("seed", [11, 13, 47])
+def test_noise_texture_detector_flags_wind_like_sweep(seconds, seed):
+    """The flag must hold across durations and synthesis seeds, not at one
+    hand-picked configuration."""
+
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import (
+        inspect_harmonic_diversity_bytes,
+        inspect_spectrotemporal_modulation_bytes,
+        is_probably_noise_texture,
+    )
+
+    data = _wav_bytes(_wind_noise_sweep(np, seconds=seconds, seed=seed), sample_rate=48000)
+    diversity = inspect_harmonic_diversity_bytes(data)
+    modulation = inspect_spectrotemporal_modulation_bytes(data)
+
+    # The point of the detector: the basic validity check does NOT catch this.
+    assert diversity.wav.is_probably_noise_or_invalid is False
+    assert is_probably_noise_texture(diversity, modulation) is True
+
+
+@pytest.mark.unit
+def test_noise_texture_detector_spares_percussion_free_music():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import (
+        inspect_harmonic_diversity_bytes,
+        inspect_spectrotemporal_modulation_bytes,
+        is_probably_noise_texture,
+    )
+
+    data = _wav_bytes(_drumless_chord_progression(np), sample_rate=48000)
+    diversity = inspect_harmonic_diversity_bytes(data)
+    modulation = inspect_spectrotemporal_modulation_bytes(data)
+
+    assert is_probably_noise_texture(diversity, modulation) is False
+
+
+@pytest.mark.unit
+def test_noise_texture_detector_defers_to_basic_validity_checks():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import (
+        inspect_harmonic_diversity_bytes,
+        inspect_spectrotemporal_modulation_bytes,
+        is_probably_noise_texture,
+    )
+
+    silence = _wav_bytes(np.zeros(48000 * 4), sample_rate=48000)
+    diversity = inspect_harmonic_diversity_bytes(silence)
+    modulation = inspect_spectrotemporal_modulation_bytes(silence)
+
+    # Silent/invalid audio is the basic checks' job; the texture detector stays quiet.
+    assert diversity.wav.is_probably_silent is True
+    assert is_probably_noise_texture(diversity, modulation) is False
+
+
+@pytest.mark.unit
+def test_quality_gate_set_accepts_music_and_rejects_wind(tmp_path):
+    """The canonical gate set the registry validation notes refer to."""
+
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import evaluate_music_quality_gates
+
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(_wav_bytes(_drumless_chord_progression(np, seconds=16.0), sample_rate=48000))
+    wind = tmp_path / "wind.wav"
+    wind.write_bytes(_wav_bytes(_wind_noise_sweep(np, seconds=16.0), sample_rate=48000))
+
+    self_check = evaluate_music_quality_gates(reference, reference)
+    assert set(self_check) == {
+        "wav_valid",
+        "no_noise_texture",
+        "no_single_note_collapse",
+        "no_low_pitch_variety",
+        "passes_reference_floor",
+        "no_repetition_artifact",
+    }
+    assert self_check["wav_valid"] is True
+    assert self_check["no_noise_texture"] is True
+    assert self_check["passes_reference_floor"] is True
+
+    wind_check = evaluate_music_quality_gates(wind, reference)
+    assert wind_check["no_noise_texture"] is False
+    assert wind_check["wav_valid"] is True  # which is exactly why the texture gate exists
+
+
+def _click_track(np, bpm_segments, rate=48000):
+    """Kick+hat pattern whose tempo changes across (bpm, seconds) segments."""
+
+    out = []
+    for bpm, seconds in bpm_segments:
+        n = int(seconds * rate)
+        seg = np.zeros(n)
+        period = int(rate * 60.0 / bpm)
+        for start in range(0, n - 400, period):
+            t = np.arange(400) / rate
+            seg[start:start + 400] += 0.8 * np.exp(-t * 40.0) * np.sin(2 * np.pi * 180.0 * t)
+            seg[start:start + 200] += 0.3 * np.exp(-np.arange(200) / 30.0) * np.sin(
+                2 * np.pi * 6000.0 * np.arange(200) / rate
+            )
+        out.append(seg)
+    joined = np.concatenate(out)
+    bed_t = np.arange(len(joined)) / rate
+    joined = joined + 0.1 * np.sin(2 * np.pi * 110.0 * bed_t)
+    return 0.7 * joined / np.max(np.abs(joined))
+
+
+@pytest.mark.unit
+def test_tempo_trajectory_flags_sustained_double_time_opening():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_tempo_trajectory_bytes
+
+    # 12s at exactly double tempo, then 36s settled: the listening-confirmed shape.
+    data = _wav_bytes(_click_track(np, [(200.0, 12.0), (100.0, 36.0)]), sample_rate=48000)
+    stats = inspect_tempo_trajectory_bytes(data)
+
+    assert stats.opening_is_plateau is True
+    assert stats.opening_ratio == pytest.approx(2.0, rel=0.1)
+    assert stats.has_probably_double_time_opening is True
+
+
+@pytest.mark.unit
+def test_tempo_trajectory_spares_steady_tracks_and_musical_intro_builds():
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_tempo_trajectory_bytes
+
+    steady = _wav_bytes(_click_track(np, [(128.0, 40.0)]), sample_rate=48000)
+    assert inspect_tempo_trajectory_bytes(steady).has_probably_double_time_opening is False
+
+    # Gliding intro build (the confirmed-good file's shape): stepwise descent,
+    # no flat opening plateau.
+    build = _wav_bytes(
+        _click_track(np, [(230.0, 5.0), (180.0, 5.0), (140.0, 5.0), (100.0, 30.0)]),
+        sample_rate=48000,
+    )
+    stats = inspect_tempo_trajectory_bytes(build)
+    assert stats.has_probably_double_time_opening is False
+
+
+@pytest.mark.unit
+def test_tempo_trajectory_integer_ratio_condition_is_load_bearing():
+    """A B-shaped opening (fast plateau over a steady tempo at a NON-integer
+    ratio, ~2.68) must not flag. This test exists to kill the mutant that
+    removes the integer-ratio condition."""
+
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_tempo_trajectory_bytes
+
+    data = _wav_bytes(_click_track(np, [(201.0, 12.0), (75.0, 36.0)]), sample_rate=48000)
+    stats = inspect_tempo_trajectory_bytes(data)
+
+    assert stats.opening_is_plateau is True
+    assert stats.opening_ratio > 1.6  # would flag if the integer condition vanished
+    assert abs(stats.opening_ratio - round(stats.opening_ratio)) >= 0.08
+    assert stats.has_probably_double_time_opening is False
+
+
+@pytest.mark.unit
+def test_tempo_trajectory_plateau_condition_is_load_bearing():
+    """A gliding opening that lands NEAR an integer overall ratio must not flag:
+    without a flat plateau it is an intro build, not a wrong-tempo opening.
+    This test kills the mutant that removes the plateau condition."""
+
+    np = pytest.importorskip("numpy")
+
+    from abstractmusic.audio_analysis import inspect_tempo_trajectory_bytes
+
+    # Opening glides 224 -> 176 (>8% window spread, no plateau) over steady 100:
+    # the tracker reads ratio ~1.995 — within 0.005 of an integer — with a
+    # consistent steady section, so ONLY the plateau condition prevents the flag.
+    data = _wav_bytes(
+        _click_track(np, [(224.0, 6.0), (176.0, 6.0), (100.0, 36.0)]), sample_rate=48000
+    )
+    stats = inspect_tempo_trajectory_bytes(data)
+
+    assert stats.opening_is_plateau is False
+    assert stats.steady_is_consistent is True
+    assert stats.opening_ratio > 1.6
+    assert abs(stats.opening_ratio - round(stats.opening_ratio)) < 0.08
+    assert stats.has_probably_double_time_opening is False

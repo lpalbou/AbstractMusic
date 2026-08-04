@@ -16,8 +16,14 @@ import wave
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Optional, Tuple
 
-from ..audio_analysis import inspect_energy_continuity_bytes, inspect_wav_bytes
-from ..errors import OptionalDependencyMissingError
+from ..audio_analysis import (
+    inspect_energy_continuity_bytes,
+    inspect_harmonic_diversity_bytes,
+    inspect_spectrotemporal_modulation_bytes,
+    inspect_wav_bytes,
+    is_probably_noise_texture,
+)
+from ..errors import CapabilityNotSupportedError, OptionalDependencyMissingError
 from ..huggingface import require_hf_repo_id
 from ..types import AudioGenerationRequest, GeneratedAsset, MusicBackendCapabilities
 
@@ -51,6 +57,35 @@ def _default_guidance_scale(model_id: str) -> Optional[float]:
     if variant in {"base", "sft"}:
         return 7.0
     return None
+
+
+def _require_pipeline_compatible_model(model_id: str) -> None:
+    """Fail fast, with a usable message, on checkpoints this backend cannot load.
+
+    Some official ACE-Step checkpoints ship in the native transformers layout
+    (no Diffusers ``model_index.json``). Left alone, ``from_pretrained`` fails
+    on them with a misleading network error; the registry knows better.
+    """
+
+    try:
+        from ..model_capabilities import MusicModelCapabilitiesRegistry
+
+        spec = MusicModelCapabilitiesRegistry().get(str(model_id))
+    except Exception:
+        return  # unknown ids stay the pipeline's problem
+    if str(spec.status).startswith("incompatible"):
+        alternatives = [
+            m.id
+            for m in MusicModelCapabilitiesRegistry().list_models()
+            if "acestep" in {str(k) for k in m.backend_kinds}
+            and not str(m.status).startswith("incompatible")
+        ]
+        raise CapabilityNotSupportedError(
+            f"{model_id} is published in the native ACE-Step repository layout, which "
+            "AceStepPipeline cannot load (registry status: "
+            f"{spec.status}). Choose a Diffusers-layout checkpoint instead: "
+            f"{', '.join(alternatives)}."
+        )
 
 
 def _lazy_import_torch():
@@ -304,6 +339,7 @@ class AceStepBackend:
         if self._pipe is not None:
             return self._pipe
 
+        _require_pipeline_compatible_model(str(self._config.model_id))
         torch = _lazy_import_torch()
         pipe_cls = _lazy_import_acestep_pipeline()
         device = _resolve_device(torch, self._config.device)
@@ -471,6 +507,18 @@ class AceStepBackend:
                 raise
         stats = inspect_wav_bytes(wav_bytes)
         continuity_stats = inspect_energy_continuity_bytes(wav_bytes)
+        # Warning-grade texture screen: guided checkpoints can emit wind/whoosh
+        # sweeps that pass the basic validity checks. Flag it so callers can
+        # retry a different seed or prompt; policy stays with the caller.
+        try:
+            noise_texture_flag = bool(
+                is_probably_noise_texture(
+                    inspect_harmonic_diversity_bytes(wav_bytes),
+                    inspect_spectrotemporal_modulation_bytes(wav_bytes),
+                )
+            )
+        except Exception:
+            noise_texture_flag = False
 
         metadata: Dict[str, Any] = {
             "backend": self.backend_id,
@@ -493,6 +541,7 @@ class AceStepBackend:
                 "clipped_ratio": float(stats.clipped_ratio),
                 "zero_crossing_rate": float(stats.zero_crossing_rate),
                 "probably_noise_or_invalid": bool(stats.is_probably_noise_or_invalid),
+                "probably_noise_texture": noise_texture_flag,
             },
             "energy_continuity_stats": {
                 "low_energy_floor": float(continuity_stats.low_energy_floor),

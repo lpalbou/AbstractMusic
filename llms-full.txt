@@ -15,7 +15,7 @@ docs and package metadata are canonical.
 - [docs/architecture.md](docs/architecture.md): core contracts, component and discovery diagrams, and dependency boundaries.
 - [docs/api.md](docs/api.md): public API, request fields, planner hooks, registry, and backend kinds.
 - [docs/models.md](docs/models.md): reviewed model list and license/precision policy.
-- [docs/faq.md](docs/faq.md): common questions and limits.
+- [docs/faq.md](docs/faq.md): common questions, prompt-rewriting rules, and limits.
 - [docs/troubleshooting.md](docs/troubleshooting.md): user-visible failure modes and recovery steps.
 - [docs/release.md](docs/release.md): release workflow and publishing setup.
 - [CHANGELOG.md](CHANGELOG.md): release history.
@@ -172,6 +172,15 @@ is not usable, and which of its models are already cached. The plugin also expos
 residency surface (`load_resident_model`, `list_loaded_models`, `list_resident_models`,
 `unload_resident_model`) for local backends; remote providers remain stateless.
 
+`abstractmusic.audio_analysis` exposes the canonical validation gate set
+`evaluate_music_quality_gates(candidate, reference)` (validity, noise texture, collapse, pitch
+variety, reference floor, repetition) and `is_probably_noise_texture(...)`, a warning-grade
+screen for wind/whoosh generative failures; the `acestep` backend reports that screen as
+`audio_stats.probably_noise_texture` in generation metadata. The gate set does not measure tempo
+stability, so pair it with listening review; `inspect_tempo_trajectory_file/bytes(...)` is a
+diagnostic windowed beat-period trajectory for inspecting rhythm problems (read as dominant onset
+rate, not exact tempo).
+
 Built-in backend kinds include `acemusic`, `elevenlabs`, `acestep`, `diffusers`, `musicgen`,
 `stable-audio`, and `stable-audio-3`.
 
@@ -189,8 +198,13 @@ Reviewed model entries include:
   ElevenLabs Music endpoints rather than voice/TTS.
 - `ACE-Step/acestep-v15-xl-turbo-diffusers`: recommended local path through `acestep` for local
   generation, MIT, text-to-music with lyrics.
-- Additional official ACE-Step checkpoints surfaced under `acestep` are
-  `ACE-Step/Ace-Step1.5`, `ACE-Step/acestep-v15-base`, and `ACE-Step/acestep-v15-sft`.
+- Additional loadable ACE-Step checkpoints under `acestep` are
+  `ACE-Step/acestep-v15-xl-sft-diffusers` and `ACE-Step/acestep-v15-xl-base-diffusers`
+  (Diffusers layout, not guidance-distilled, 50-step defaults; smoke-validated with raw short
+  prompts — avoid `--enhance-prompt` with them, as long template captions degraded guided
+  checkpoints in 30-second validation runs). `ACE-Step/Ace-Step1.5`, `ACE-Step/acestep-v15-base`, and
+  `ACE-Step/acestep-v15-sft` use the native ACE-Step repository layout that `AceStepPipeline`
+  cannot load; they remain catalog-only.
 - `facebook/musicgen-small`: optional Transformers backend, CC BY-NC 4.0.
 - `stabilityai/stable-audio-open-small`: optional gated short-clip backend under the Stability AI
   Community License.
@@ -214,6 +228,9 @@ prefer official 16-bit artifacts.
 Common user-visible issues:
 
 - Missing generation packages usually means the backend extra was not installed.
+- Output that sounds like wind or noise from the guided XL checkpoints usually means a long
+  template caption reached the model: keep `--enhance-prompt` off for XL sft/base, verify with
+  `--print-plan`, and check `audio_stats.probably_noise_texture` in generation metadata.
 - If AbstractCore discovery lists no music providers, call `provider_details(...)` for the reason
   per provider: `not-installed`, `no-local-weights`, `not-configured`, `unauthorized`,
   `unreachable`, or `unavailable`. `metadata.models` lists what the provider supports and
