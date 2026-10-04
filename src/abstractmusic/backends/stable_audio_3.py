@@ -31,6 +31,7 @@ _MODEL_INFO: Dict[str, Dict[str, Any]] = {
         "name": "small-music",
         "display": "Stable Audio 3 Small Music",
         "max_duration_s": 120.0,
+        "default_duration_s": 30.0,
         "sample_rate_hz": 44100,
         "hardware": "CPU",
     },
@@ -38,6 +39,9 @@ _MODEL_INFO: Dict[str, Dict[str, Any]] = {
         "name": "small-sfx",
         "display": "Stable Audio 3 Small SFX",
         "max_duration_s": 120.0,
+        # A sound effect is short: a request without a length gets 5 s, not a
+        # 30 s bed the model then fills (R10.1, 2026-10-04).
+        "default_duration_s": 5.0,
         "sample_rate_hz": 44100,
         "hardware": "CPU",
     },
@@ -45,6 +49,7 @@ _MODEL_INFO: Dict[str, Dict[str, Any]] = {
         "name": "medium",
         "display": "Stable Audio 3 Medium",
         "max_duration_s": 380.0,
+        "default_duration_s": 30.0,
         "sample_rate_hz": 44100,
         "hardware": "CUDA",
     },
@@ -212,7 +217,12 @@ class StableAudio3BackendConfig:
     model_id: str = MODEL_ID_SMALL_MUSIC
     device: str = "auto"
     torch_dtype: str = "auto"
-    duration_s: float = 30.0
+    # None = the checkpoint's own default length (`default_duration_s` above:
+    # 5 s for small-sfx, 30 s for the music checkpoints).
+    duration_s: Optional[float] = None
+    # Model cards (small-music, small-sfx): 8 steps, cfg_scale 1.0, pingpong.
+    # The checkpoints are adversarially post-trained: cfg 1.0 means no
+    # unconditional pass, so a negative prompt has no effect and is refused.
     num_inference_steps: int = 16
     guidance_scale: float = 1.0
     sampler_type: str = "pingpong"
@@ -432,7 +442,13 @@ class StableAudio3Backend:
         if request.negative_prompt:
             raise ValueError("Stable Audio 3 backend does not support negative_prompt yet.")
 
-        duration_s = float(request.duration_s if request.duration_s is not None else self._config.duration_s)
+        duration_s = float(
+            request.duration_s
+            if request.duration_s is not None
+            else self._config.duration_s
+            if self._config.duration_s is not None
+            else _MODEL_INFO[str(self._config.model_id)]["default_duration_s"]
+        )
         if duration_s <= 0:
             raise ValueError("duration_s must be positive")
         max_duration_s = float(_MODEL_INFO[str(self._config.model_id)]["max_duration_s"])

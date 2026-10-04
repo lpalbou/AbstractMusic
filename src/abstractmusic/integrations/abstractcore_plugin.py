@@ -18,6 +18,7 @@ import importlib
 import importlib.util
 import inspect
 import json
+import math
 import os
 import re
 import threading
@@ -42,6 +43,11 @@ _TASK_ALIASES = {
     "lyrics-to-music": "lyrics_to_music",
     "t2a": "text_to_audio",
     "text-to-audio": "text_to_audio",
+    "music_generation": "text_to_music",
+    "sound": "text_to_audio",
+    "sfx": "text_to_audio",
+    "sound_effect": "text_to_audio",
+    "sound_generation": "text_to_audio",
 }
 
 _BACKEND_ID_TO_KIND = {
@@ -638,6 +644,32 @@ class _CoreTextServiceMusicPlanner:
                 if out.get(key) not in (None, "", [])
             ]
         return out
+
+
+# A sound effect without a requested length (seconds) is 5 s; music keeps its
+# backend's default (30 s for Stable Audio 3). R10.1, 2026-10-04.
+SOUND_EFFECT_DEFAULT_SECONDS = 5.0
+
+
+def _requested_seconds(duration_s: Any, seconds: Any) -> Optional[float]:
+    """The requested length: `seconds` (agent/tool vocabulary) or `duration_s` (engine)."""
+
+    values = []
+    for name, raw in (("duration_s", duration_s), ("seconds", seconds)):
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            continue
+        if isinstance(raw, bool):
+            raise ValueError(f"{name} must be a number of seconds, got {raw!r}.")
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"{name} must be a number of seconds, got {raw!r}.") from None
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a positive number of seconds, got {raw!r}.")
+        values.append(value)
+    if len(values) == 2 and values[0] != values[1]:
+        raise ValueError(f"seconds ({values[1]:g}) and duration_s ({values[0]:g}) disagree; send one.")
+    return values[0] if values else None
 
 
 class _AbstractMusicCapabilityBase:
@@ -1369,6 +1401,43 @@ class _AbstractMusicCapabilityBase:
             "operations": self.list_operations(task=task),
         }
 
+    def generate(self, prompt: str, *, task: Optional[str] = None, **kwargs: Any):
+        """AbstractCore's `music.generate(prompt, task=...)` entry: the task decides the
+        defaults (`text_to_audio` = a sound effect: verbatim prompt, 5 s unless asked)."""
+
+        return self.t2m(prompt, task=task, **kwargs)
+
+    def _use_requested_model(self, model: Any) -> None:
+        """Run THIS request on the checkpoint it names (the route's model).
+
+        Before R10.1 the request's `model` fell into the backend's `extra` and was
+        ignored, so the output.sound route (stable-audio-3-small-sfx) ran the
+        configured/default MUSIC checkpoint. One checkpoint stays resident: a
+        different one replaces it (the previous one is unloaded first)."""
+
+        model_s = str(model or "").strip()
+        build = getattr(self, "_build_backend_for_model", None)
+        if not model_s or not callable(build):
+            return
+        with self._state_lock:
+            current = self._get_backend()
+            current_id = str(getattr(getattr(current, "_config", None), "model_id", "") or "")
+            canonical = getattr(self, "_canonical_model", None)
+            wanted_id = canonical(model_s) if callable(canonical) else model_s  # refuses unknown ids
+            if wanted_id == current_id:
+                return
+            candidate = build(wanted_id)  # loads nothing; weights load on first use
+            if type(current) is not type(candidate):
+                return  # an injected backend (music_backend_instance/factory) stays in charge
+            unload = getattr(current, "unload", None)
+            if callable(unload):
+                try:
+                    unload()
+                except Exception:
+                    pass
+            self._loaded_models.clear()
+            self._backend = candidate
+
     def t2m(
         self,
         prompt: str,
@@ -1379,6 +1448,7 @@ class _AbstractMusicCapabilityBase:
         run_id: Optional[str] = None,
         tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        task: Optional[str] = None,
         **kwargs: Any,
     ):
         fmt = str(format or "wav").strip().lower() or "wav"
@@ -1388,8 +1458,21 @@ class _AbstractMusicCapabilityBase:
                 f"format={fmt!r} is not supported by this backend; supported formats: {sorted(allowed_formats)}"
             )
 
+        task_s = _normalize_task(task) or "text_to_music"
+        sound_effect = task_s == "text_to_audio"
+        kwargs["duration_s"] = _requested_seconds(kwargs.pop("duration_s", None), kwargs.pop("seconds", None))
+        if kwargs["duration_s"] is None and sound_effect:
+            kwargs["duration_s"] = SOUND_EFFECT_DEFAULT_SECONDS
+        requested_model = kwargs.pop("model", None) or kwargs.pop("model_id", None)
+        kwargs.pop("model_id", None)
+        self._use_requested_model(requested_model)
+
         mm = self._make_manager()
         planner_mode = self._get_text_planner_mode()
+        if sound_effect and "planning" not in kwargs and "plan_text" not in kwargs:
+            # The text planner writes MUSIC captions (style, structure, lyrics);
+            # a sound effect prompt goes to the model as written.
+            kwargs["planning"] = False
         if "planning" not in kwargs and "plan_text" not in kwargs:
             kwargs["planning"] = str(planner_mode or "").strip().lower() not in {"0", "false", "no", "none", "off"}
         if "text_planner_mode" not in kwargs:
@@ -1647,7 +1730,19 @@ class _AbstractMusicStableAudio3Capability(_AbstractMusicCapabilityBase):
         except NotImplementedError:
             pass
 
-        model_id = _require_model_id(self._owner) or "stabilityai/stable-audio-3-small-music"
+        self._backend = self._build_backend_for_model(
+            _require_model_id(self._owner) or "stabilityai/stable-audio-3-small-music"
+        )
+        return self._backend
+
+    def _canonical_model(self, model_id: str) -> str:
+        from ..backends.stable_audio_3 import _canonical_model_id
+
+        return _canonical_model_id(model_id)
+
+    def _build_backend_for_model(self, model_id: str):
+        """A backend for one SA3 checkpoint (cheap: weights load on first use)."""
+
         device = _owner_cfg(self._owner, "music_device") or _env("ABSTRACTMUSIC_DEVICE", "auto")
         dtype = _owner_cfg(self._owner, "music_torch_dtype") or _env("ABSTRACTMUSIC_TORCH_DTYPE", "auto")
         steps = _owner_cfg_any(self._owner, "music_num_inference_steps") or _env("ABSTRACTMUSIC_NUM_INFERENCE_STEPS")
@@ -1666,18 +1761,25 @@ class _AbstractMusicStableAudio3Capability(_AbstractMusicCapabilityBase):
             except Exception:
                 return float(default)
 
+        def _to_float_or_none(v: Any) -> Optional[float]:
+            try:
+                return float(v)
+            except Exception:
+                return None
+
         from ..backends.stable_audio_3 import StableAudio3Backend, StableAudio3BackendConfig
 
         cfg = StableAudio3BackendConfig(
             model_id=str(model_id),
             device=str(device or "auto"),
             torch_dtype=str(dtype or "auto"),
-            duration_s=_to_float(duration_s, 30.0),
+            # Unset = the checkpoint's own default (5 s SFX, 30 s music).
+            duration_s=_to_float_or_none(duration_s) if duration_s is not None else None,
+            # Model cards: 8 steps, cfg 1.0 (adversarially post-trained checkpoints).
             num_inference_steps=_to_int(steps, 8),
             guidance_scale=_to_float(guidance_scale, 1.0),
         )
-        self._backend = StableAudio3Backend(config=cfg)
-        return self._backend
+        return StableAudio3Backend(config=cfg)
 
 
 class _AbstractMusicStableAudioCapability(_AbstractMusicCapabilityBase):

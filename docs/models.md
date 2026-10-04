@@ -43,8 +43,10 @@ provider-specific model names when exposed by the service.
   120-second local validation runs at 16 steps, but it is not recommended until broader
   prompt/seed and GPU validation are complete.
 - `stabilityai/stable-audio-3-small-sfx`: gated Stable Audio 3 Small SFX checkpoint. It is exposed
-  through the same `stable-audio-3` backend and is intended for longer text-to-audio sound effects.
-  It is not recommended until it has dedicated SFX validation coverage.
+  through the same `stable-audio-3` backend for text-to-audio sound effects, up to 120 seconds;
+  a request without a length produces 5 seconds. Model-card settings: 8 steps, `cfg_scale` 1.0,
+  `pingpong` sampler, no negative prompt. It is not recommended until it has dedicated SFX
+  validation coverage.
 - `stabilityai/stable-audio-3-medium`: gated Stable Audio 3 Medium checkpoint, tracked behind
   `stable-audio-3` but not recommended until Small Music has broader validation. It is GPU-oriented
   and heavier than the Small model.

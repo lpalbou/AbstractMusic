@@ -130,6 +130,10 @@ open("jazz.wav", "wb").write(wav_bytes)
   Stable Audio checkout. Model terms must be accepted on Hugging Face. The current implementation
   has passed focused 30-second and 120-second Small Music validation runs; broader prompt/seed and
   GPU validation are still required before it is marked recommended.
+- Through AbstractCore, a sound effect (`task="text_to_audio"`) runs the checkpoint the request
+  names (for example `stabilityai/stable-audio-3-small-sfx`) for the requested `seconds` (5 seconds
+  when none is given; music defaults to 30), with the prompt as written. See
+  [docs/api.md](docs/api.md#text-planning).
 - Known model/provider metadata is packaged in `src/abstractmusic/assets/music_model_capabilities.json`.
   See `docs/models.md` for the reviewed model list and precision policy.
 - Full documentation starts at `docs/README.md`, including setup, API, architecture, models,

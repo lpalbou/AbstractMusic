@@ -172,6 +172,12 @@ is not usable, and which of its models are already cached. The plugin also expos
 residency surface (`load_resident_model`, `list_loaded_models`, `list_resident_models`,
 `unload_resident_model`) for local backends; remote providers remain stateless.
 
+Through AbstractCore, `music.generate(prompt, task=..., model=..., seconds=...)`: `text_to_audio`
+is a sound effect (prompt as written, no music planner, 5 seconds without a length); music keeps
+the planner and its backend default (30 seconds for Stable Audio 3). `seconds` and `duration_s` are
+the same value. `model` selects the Stable Audio 3 checkpoint per request (one stays loaded). Small
+SFX/Music run their model-card settings (8 steps, cfg 1.0, pingpong); `negative_prompt` is refused.
+
 `abstractmusic.audio_analysis` exposes the canonical validation gate set
 `evaluate_music_quality_gates(candidate, reference)` (validity, noise texture, collapse, pitch
 variety, reference floor, repetition) and `is_probably_noise_texture(...)`, a warning-grade

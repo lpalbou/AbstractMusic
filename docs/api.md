@@ -74,6 +74,21 @@ when the owner context/config exposes `generate_text(...)` or `generate_structur
 LLM planning injectable without adding an AbstractCore dependency or passing raw provider objects
 into AbstractMusic.
 
+Sound effects and music through AbstractCore. A host calls `music.generate(prompt, task=...,
+model=..., seconds=...)` (or `t2m(...)` with the same keywords):
+
+- `task="text_to_audio"` is a sound effect: the prompt reaches the model as written (the music text
+  planner is skipped) and a request without a length lasts 5 seconds. `text_to_music` keeps the
+  planner and the backend's default length (30 seconds for Stable Audio 3).
+- `seconds` is the clip length; `duration_s` is the same value (send one; different values are
+  refused, and so is a length that is not a positive number).
+- `model` selects the checkpoint for this request. With `stable-audio-3`, naming
+  `stabilityai/stable-audio-3-small-sfx` runs the SFX checkpoint; one checkpoint stays loaded, and
+  a request for another unloads it first.
+- The Stable Audio 3 small checkpoints run with their model-card settings: 8 steps, `cfg_scale`
+  1.0, `pingpong` sampler. They are adversarially post-trained, so there is no negative prompt:
+  a `negative_prompt` is refused with a reason.
+
 The plugin capability object exposes AbstractCore-friendly discovery methods:
 `available_providers(task=...)`, `provider_details(task=...)`,
 `list_models(task=..., provider=...)`, `list_provider_models(...)`, `list_operations(task=...)`,
@@ -196,6 +211,7 @@ The registry is metadata only. It must not silently change the configured provid
 - `musicgen`: Transformers MusicGen adapter for `facebook/musicgen-small` (non-commercial).
 - `stable-audio`: vendored Stable Audio Open Small adapter for
   `stabilityai/stable-audio-open-small` (gated, non-default, short clips).
-- `stable-audio-3`: internal AbstractMusic runtime for `stabilityai/stable-audio-3-small-music`
-  and tracked Medium support. Uses Hugging Face weights/configs only; it does not import the
+- `stable-audio-3`: internal AbstractMusic runtime for `stabilityai/stable-audio-3-small-music`,
+  `stabilityai/stable-audio-3-small-sfx` and tracked Medium support. Without a requested length,
+  Small SFX produces 5 seconds and the music checkpoints 30 seconds. Uses Hugging Face weights/configs only; it does not import the
   upstream `stable_audio_3` package.

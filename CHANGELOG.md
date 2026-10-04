@@ -4,7 +4,22 @@ All notable changes to AbstractMusic will be documented in this file.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- AbstractCore plugin: a request's `model` now selects the Stable Audio 3 checkpoint, so the
+  sound-effect route (`stabilityai/stable-audio-3-small-sfx`) runs the SFX checkpoint instead of
+  the configured or default music checkpoint. One checkpoint stays loaded; switching unloads the
+  previous one.
+- Sound effects (`task="text_to_audio"`) last 5 seconds when no length is requested (they were
+  30 seconds), and their prompt skips the music text planner. Music keeps 30 seconds.
+
+### Added
+
+- `seconds` request argument (same value as `duration_s`; conflicting or non-positive values are
+  refused) and a `generate(prompt, task=..., **kwargs)` entry point on the plugin capability so
+  AbstractCore hands over the task.
+- Stable Audio 3 checkpoints carry a default length (`default_duration_s`: 5 s for Small SFX,
+  30 s for Small Music and Medium); `StableAudio3BackendConfig.duration_s` defaults to it.
 
 ## [0.1.15] - 2026-08-04
 
