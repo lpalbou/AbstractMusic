@@ -4,7 +4,7 @@ All notable changes to AbstractMusic will be documented in this file.
 
 ## [Unreleased]
 
-## [0.1.16] - 2026-10-04
+## [0.1.16] - 2026-10-05
 
 ### Fixed
 
