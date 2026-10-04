@@ -4,6 +4,8 @@ All notable changes to AbstractMusic will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-10-04
+
 ### Fixed
 
 - AbstractCore plugin: a request's `model` now selects the Stable Audio 3 checkpoint, so the
