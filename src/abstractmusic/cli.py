@@ -1477,7 +1477,23 @@ def _cmd_repl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _safe_stdio() -> None:
+    """Replace, never crash on, a character the console's code page lacks: on Windows a
+    piped or redirected stream uses the ANSI code page (often cp1252, no arrows or emoji)."""
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        encoding = str(getattr(stream, "encoding", "") or "").lower().replace("_", "-")
+        if reconfigure is None or encoding in {"utf-8", "utf8", "utf-8-sig"}:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except Exception:
+            pass
+
+
 def main(argv: Optional[list[str]] = None) -> int:
+    _safe_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 

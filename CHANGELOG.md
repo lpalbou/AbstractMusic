@@ -4,6 +4,13 @@ All notable changes to AbstractMusic will be documented in this file.
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-10-17
+
+### Fixed
+
+- `abstractmusic` no longer stops with `UnicodeEncodeError` when its output is piped or
+  redirected on Windows; a character the code page lacks is written as `?`.
+
 ## [0.1.16] - 2026-10-05
 
 ### Fixed
