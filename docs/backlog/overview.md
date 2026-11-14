@@ -16,7 +16,7 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 ## Status counts
 
 - Planned: 2
-- Proposed: 5
+- Proposed: 7
 - Completed: 13
 - Deprecated: 5
 - Recurrent: 2
@@ -66,6 +66,8 @@ supported provider paths; accepted reference WAVs remain comparison artifacts on
 | `proposed/0082_local_engine_priority_after_remote_baseline.md` | Promote when choosing the next local/open-weight engine spike after the two remote endpoint baseline. |
 | `proposed/0087_truthful_music_provider_runtime_availability.md` | Promote before clients rely on provider lists for selectable music backends; provider availability must mean runnable in the connected deployment. |
 | `proposed/0088_reference_floor_exemplar_review.md` | Promote before judging further local checkpoints against the reference floor; 7 of 7 matrix failures hinged on one entropy ratio and the exemplar has a near-silent tail. |
+| `proposed/0091_stable_audio_documented_cli_command_fails_task_mismatch.md` | Promote before the next release: the documented `--backend stable-audio t2m` command fails at once (`Backend does not support task 'text_to_music'`); found in the 0.14.0 profile proof. |
+| `proposed/0092_cli_prints_no_device_dtype_stable_audio_float32_and_duration.md` | Promote with 0091: the CLI never shows device/dtype/timings (three hosts), Stable Audio runs float32 without a reason and returns 11.9 s for 8 s. |
 | `proposed/0090_tempo_stability_gate.md` | Promote before trusting automated gates on rhythm: a listening-failed double-time opening passed every gate, and the candidate metric is fitted to one labeled example. |
 
 ## Deprecated work
